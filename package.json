@@ -1,0 +1,40 @@
+{
+  "name": "iptv-player",
+  "version": "1.0.0",
+  "private": true,
+  "dependencies": {
+    "axios": "^1.13.4",
+    "hls.js": "^1.6.15",
+    "lucide-react": "^0.344.0",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "react-player": "^3.4.0",
+    "react-toastify": "^11.0.5",
+    "react-virtualized-auto-sizer": "^2.0.2",
+    "react-window": "^2.2.6"
+  },
+  "scripts": {
+    "start": "react-scripts start",
+    "build": "react-scripts build",
+    "test": "react-scripts test",
+    "eject": "react-scripts eject"
+  },
+  "devDependencies": {
+    "autoprefixer": "^10.4.24",
+    "postcss": "^8.5.6",
+    "react-scripts": "^5.0.1",
+    "tailwindcss": "^3.4.19"
+  },
+  "browserslist": {
+    "production": [
+      ">0.2%",
+      "not dead",
+      "not op_mini all"
+    ],
+    "development": [
+      "last 1 chrome version",
+      "last 1 firefox version",
+      "last 1 safari version"
+    ]
+  }
+}

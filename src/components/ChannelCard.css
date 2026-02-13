@@ -1,0 +1,190 @@
+/* src/components/ChannelCard.css */
+.channel-card {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 1rem;
+  background: var(--card-bg);
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  overflow: hidden;
+}
+
+.channel-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  border-color: var(--primary-color);
+}
+
+.channel-card.selected {
+  border-color: var(--primary-color);
+  background: var(--card-selected-bg);
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.1);
+}
+
+.channel-card-logo-container {
+  flex-shrink: 0;
+  width: 64px;
+  height: 64px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--logo-bg);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.channel-card-logo {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.channel-card-logo-placeholder {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--placeholder-bg);
+}
+
+.placeholder-icon {
+  font-size: 2rem;
+  opacity: 0.5;
+}
+
+.channel-card-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.channel-card-name {
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 0.25rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.channel-card-meta {
+  display: flex;
+  gap: 0.5rem;
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+}
+
+.channel-card-actions {
+  display: flex;
+  gap: 0.5rem;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+
+.channel-card:hover .channel-card-actions {
+  opacity: 1;
+}
+
+.favorite-btn,
+.play-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border: none;
+  border-radius: 50%;
+  background: var(--button-bg);
+  color: var(--text-primary);
+  font-size: 1.2rem;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.favorite-btn {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.favorite-btn.active {
+  color: #ef4444;
+}
+
+.favorite-btn:hover {
+  background: rgba(239, 68, 68, 0.2);
+  transform: scale(1.1);
+}
+
+.play-btn {
+  background: var(--primary-color);
+  color: white;
+}
+
+.play-btn:hover {
+  background: var(--primary-hover);
+  transform: scale(1.1);
+}
+
+.live-indicator {
+  position: absolute;
+  top: 0.5rem;
+  right: 0.5rem;
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.25rem 0.5rem;
+  background: rgba(239, 68, 68, 0.2);
+  border-radius: 4px;
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: #ef4444;
+}
+
+.live-dot {
+  width: 6px;
+  height: 6px;
+  background: #ef4444;
+  border-radius: 50%;
+  animation: pulse 1.5s infinite;
+}
+
+@keyframes pulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.3;
+  }
+}
+
+/* Dark theme */
+.theme-dark .channel-card {
+  --card-bg: #1e293b;
+  --card-selected-bg: #2d3b4f;
+  --border-color: #334155;
+  --text-primary: #f1f5f9;
+  --text-secondary: #94a3b8;
+  --logo-bg: #0f172a;
+  --placeholder-bg: #334155;
+  --button-bg: #2d3b4f;
+  --primary-color: #3b82f6;
+  --primary-hover: #2563eb;
+}
+
+/* Light theme */
+.theme-light .channel-card {
+  --card-bg: #ffffff;
+  --card-selected-bg: #f8fafc;
+  --border-color: #e2e8f0;
+  --text-primary: #0f172a;
+  --text-secondary: #475569;
+  --logo-bg: #f1f5f9;
+  --placeholder-bg: #e2e8f0;
+  --button-bg: #f1f5f9;
+  --primary-color: #3b82f6;
+  --primary-hover: #2563eb;
+}
