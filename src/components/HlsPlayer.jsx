@@ -11,97 +11,42 @@ const HlsPlayer = ({
   onError,
   theme,
   currentStreamInfo,
-  currentEpg,
-  epgData,
-  onEpgUpdate
+  currentEpg
 }) => {
   const videoRef = useRef(null);
   const hlsRef = useRef(null);
   const [isReady, setIsReady] = useState(false);
   const [error, setError] = useState(null);
-  const [retryCount, setRetryCount] = useState(0);
   const [isBuffering, setIsBuffering] = useState(false);
-  const [useNativeControls, setUseNativeControls] = useState(false);
-  const [usingProxy, setUsingProxy] = useState(false);
   const bufferTimerRef = useRef(null);
   const errorReportedRef = useRef(false);
-  const MAX_RETRIES = 3;
-
-  // Proxy URL function
-  const getProxyUrl = useCallback((url) => {
-    if (!url) return url;
-    
-    // Nëse është HTTP dhe jemi në HTTPS, përdor proxy
-    if (url.startsWith('http://') && window.location.protocol === 'https:') {
-      console.log('🔄 Using proxy for HTTP URL:', url);
-      setUsingProxy(true);
-      
-      // Proxy publik (për zhvillim)
-      // const proxyUrl = `https://cors-anywhere.herokuapp.com/${url}`;
-      
-      // Proxy lokal (nëse kemi server)
-      const proxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`;
-      
-      return proxyUrl;
-    }
-    
-    // Konverto HTTP në HTTPS nëse është e mundur
-    if (url.startsWith('http://') && url.includes('.m3u8')) {
-      const httpsUrl = url.replace('http://', 'https://');
-      console.log('🔄 Trying HTTPS instead of HTTP:', httpsUrl);
-      return httpsUrl;
-    }
-    
-    return url;
-  }, []);
 
   // Clean up buffer timer
-  useEffect(() => {
-    return () => {
-      if (bufferTimerRef.current) {
-        clearTimeout(bufferTimerRef.current);
-      }
-    };
-  }, []);
+  useEffect(() => () => clearTimeout(bufferTimerRef.current), []);
 
-  // Funksion për të raportuar error vetëm një herë
+  // Raporton error vetëm një herë
   const reportError = useCallback((errorData) => {
     if (!errorReportedRef.current && onError) {
       errorReportedRef.current = true;
-      
-      const error = {
+      onError({
         type: errorData?.type || 'unknown',
         message: errorData?.message || errorData?.details || 'Gabim i panjohur',
         code: errorData?.code,
         details: errorData?.details || errorData?.message
-      };
-      
-      onError(error);
-      
-      setTimeout(() => {
-        errorReportedRef.current = false;
-      }, 2000);
+      });
+      setTimeout(() => { errorReportedRef.current = false; }, 2000);
     }
   }, [onError]);
 
-  // Funksion për të luajtur videon
   const playVideo = useCallback(async () => {
     if (!videoRef.current) return false;
-    
     try {
       await videoRef.current.play();
-      console.log('▶️ Playing successfully');
       setIsBuffering(false);
       return true;
     } catch (err) {
-      console.warn('Play failed:', err);
-      if (err.name === 'NotAllowedError') {
-        // Autoplay u bllokua - useri duhet të klikojë play
-        setIsReady(true);
-      } else if (err.name === 'NotSupportedError') {
-        setError('Formati i videos nuk mbështetet');
-        reportError({ type: 'notSupported', message: err.message });
-      }
+      if (err.name === 'NotAllowedError') setIsReady(true);
+      else reportError({ type: 'playError', message: err.message });
       return false;
     }
   }, [reportError]);
@@ -114,321 +59,102 @@ const HlsPlayer = ({
     setIsReady(false);
     setError(null);
     setIsBuffering(false);
-    setUsingProxy(false);
     errorReportedRef.current = false;
 
-    // Clean up previous instance
-    if (hlsRef.current) {
-      hlsRef.current.destroy();
-      hlsRef.current = null;
-    }
+    if (hlsRef.current) { hlsRef.current.destroy(); hlsRef.current = null; }
 
-    // Përdor proxy nëse është e nevojshme
-    const streamUrl = getProxyUrl(src);
-    
-    console.log('🎬 Loading stream:', { 
-      original: src.substring(0, 100),
-      using: streamUrl.substring(0, 100),
-      isHls: streamUrl.includes('.m3u8'),
-      usingProxy
-    });
+    // Stream URL
+    const streamUrl = src;
 
-    // Për HLS streams
-    if (streamUrl.includes('.m3u8') || streamUrl.includes('playlist.m3u8')) {
-      console.log('🎬 Using HLS.js for m3u8 stream');
-      
+    if (streamUrl.includes('.m3u8')) {
       if (Hls.isSupported()) {
         try {
-          hls = new Hls({
-            enableWorker: true,
-            lowLatencyMode: false,
-            backBufferLength: 60,
-            maxBufferLength: 30,
-            maxMaxBufferLength: 60,
-            maxBufferSize: 50 * 1000 * 1000,
-            maxBufferHole: 0.5,
-            manifestLoadingTimeOut: 30000,
-            manifestLoadingMaxRetry: 8,
-            manifestLoadingRetryDelay: 2000,
-            manifestLoadingMaxRetryTimeout: 60000,
-            levelLoadingTimeOut: 30000,
-            levelLoadingMaxRetry: 6,
-            levelLoadingRetryDelay: 2000,
-            levelLoadingMaxRetryTimeout: 60000,
-            fragLoadingTimeOut: 40000,
-            fragLoadingMaxRetry: 6,
-            fragLoadingRetryDelay: 2000,
-            fragLoadingMaxRetryTimeout: 60000,
-            startLevel: -1,
+          hls = new Hls({ 
+            enableWorker: true, 
             debug: false,
-            xhrSetup: (xhr, url) => {
-              // Shto headers për të imituar një shfletues normal
+            xhrSetup: (xhr) => {
+              // Vetëm headers të sigurta nga browser
               xhr.setRequestHeader('Accept', '*/*');
               xhr.setRequestHeader('Accept-Language', 'en-US,en;q=0.9');
-              xhr.setRequestHeader('User-Agent', navigator.userAgent);
-              xhr.withCredentials = false;
-              
-              // Për Xtream streams
-              if (url.includes('balkan-x.net') || url.includes('panther-tv.com')) {
-                xhr.setRequestHeader('Referer', 'https://google.com/');
-                xhr.setRequestHeader('Origin', 'https://google.com');
-              }
             }
           });
-
           hlsRef.current = hls;
 
-          hls.on(Hls.Events.MEDIA_ATTACHED, () => {
-            console.log('✅ HLS media attached');
-            hls.loadSource(streamUrl);
-          });
+          hls.on(Hls.Events.MEDIA_ATTACHED, () => hls.loadSource(streamUrl));
 
           hls.on(Hls.Events.MANIFEST_PARSED, (event, data) => {
-            console.log('✅ HLS manifest parsed, levels:', data.levels.length);
             setIsReady(true);
-            setError(null);
-            
-            if (isPlaying) {
-              playVideo();
-            }
+            if (isPlaying) playVideo();
           });
 
           hls.on(Hls.Events.ERROR, (event, data) => {
-            console.error('❌ HLS error:', {
-              type: data.type,
-              details: data.details,
-              fatal: data.fatal,
-              response: data.response
-            });
-            
-            // Mixed content error
-            if (data.response?.url && data.response.url.startsWith('http:') && window.location.protocol === 'https:') {
-              console.warn('⚠️ Mixed content detected. Using alternative method...');
-              
-              // Provo me një proxy tjetër
-              if (!usingProxy) {
-                const proxyUrl = `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(src)}`;
-                hls.loadSource(proxyUrl);
-                setUsingProxy(true);
-                return;
-              }
-            }
-            
-            // 401 Unauthorized error
-            if (data.response?.code === 401 || data.details?.includes('401')) {
-              setError('Nuk keni autorizim për këtë stream. Kontrollo kredencialet.');
-              reportError({ 
-                type: 'authError', 
-                message: 'Unauthorized - 401',
-                details: 'Kredenciale të pavlefshme ose të skaduara'
-              });
-              return;
-            }
-            
-            // CORS error
-            if (data.details === 'manifestLoadError' && data.response?.code === 0) {
-              console.warn('⚠️ Possible CORS error. Trying with proxy...');
-              
-              if (!usingProxy) {
-                const proxyUrl = `https://corsproxy.io/?${encodeURIComponent(src)}`;
-                hls.loadSource(proxyUrl);
-                setUsingProxy(true);
-                return;
-              }
-            }
-            
+            console.error('HLS error:', data);
             if (data.fatal) {
               switch (data.type) {
                 case Hls.ErrorTypes.NETWORK_ERROR:
-                  console.log('Network error, trying to recover...');
-                  setTimeout(() => {
-                    hls.startLoad();
-                  }, 2000);
+                  setTimeout(() => hls.startLoad(), 2000);
                   break;
-                  
                 case Hls.ErrorTypes.MEDIA_ERROR:
-                  console.log('Media error, trying to recover...');
                   hls.recoverMediaError();
                   break;
-                  
                 default:
-                  console.log('Fatal error, cannot recover');
-                  setError('Problem me stream-in. Duke provuar metodë alternative...');
-                  
-                  // Provo me video direkt
-                  setTimeout(() => {
-                    if (videoRef.current) {
-                      videoRef.current.src = src;
-                      videoRef.current.load();
-                      setIsReady(true);
-                    }
-                  }, 1000);
-                  
-                  reportError({ 
-                    type: 'hlsError', 
-                    message: `HLS Error: ${data.type}`,
-                    details: data.details 
-                  });
+                  setError('Problem me stream-in.');
+                  reportError({ type: 'hlsError', message: data.details });
                   break;
               }
             }
           });
 
           hls.attachMedia(videoRef.current);
-          
         } catch (err) {
-          console.error('Failed to initialize HLS:', err);
           setError('Nuk mund të inicializohet HLS player');
           reportError({ type: 'initError', message: err.message });
         }
       } else if (videoRef.current.canPlayType('application/vnd.apple.mpegurl')) {
-        // Safari native HLS
-        console.log('🎬 Using Safari native HLS');
         videoRef.current.src = streamUrl;
         videoRef.current.load();
-        
-        const onLoadedMetadata = () => {
-          setIsReady(true);
-          if (isPlaying) {
-            playVideo();
-          }
-        };
-        
-        const onError = () => {
-          const videoError = videoRef.current?.error;
-          console.error('Safari HLS error:', videoError);
-          
-          if (videoError?.code === 4) {
-            setError('Nuk keni autorizim për këtë stream');
-            reportError({ type: 'authError', message: 'Unauthorized' });
-          }
-        };
-        
+        const onLoadedMetadata = () => { setIsReady(true); if (isPlaying) playVideo(); };
+        const onError = () => reportError({ type: 'videoError', message: 'Safari HLS error' });
         videoRef.current.addEventListener('loadedmetadata', onLoadedMetadata);
         videoRef.current.addEventListener('error', onError);
-        
         return () => {
-          videoRef.current?.removeEventListener('loadedmetadata', onLoadedMetadata);
-          videoRef.current?.removeEventListener('error', onError);
-        };
-      } else {
-        // Fallback to direct video
-        console.log('🎬 Falling back to direct video');
-        videoRef.current.src = streamUrl;
-        videoRef.current.load();
-        
-        const onCanPlay = () => {
-          setIsReady(true);
-          if (isPlaying) {
-            playVideo();
-          }
-        };
-        
-        videoRef.current.addEventListener('canplay', onCanPlay);
-        
-        return () => {
-          videoRef.current?.removeEventListener('canplay', onCanPlay);
+          videoRef.current.removeEventListener('loadedmetadata', onLoadedMetadata);
+          videoRef.current.removeEventListener('error', onError);
         };
       }
     } else {
-      // Për video direkte (MP4, TS, etj)
-      console.log('🎬 Using direct video playback');
+      // Direct video (MP4, TS, ...)
       videoRef.current.src = streamUrl;
       videoRef.current.load();
-      
-      const onCanPlay = () => {
-        setIsReady(true);
-        if (isPlaying) {
-          playVideo();
-        }
-      };
-
-      const onError = () => {
-        const videoError = videoRef.current?.error;
-        console.error('Direct video error:', videoError);
-        
-        if (videoError?.code === 4) {
-          setError('Formati i videos nuk mbështetet ose nuk keni autorizim');
-          reportError({ type: 'videoError', message: 'Format not supported or unauthorized' });
-        } else if (videoError?.code === 2) {
-          setError('Gabim në rrjet. Kontrollo lidhjen.');
-          reportError({ type: 'networkError', message: 'Network error' });
-        }
-      };
-
+      const onCanPlay = () => { setIsReady(true); if (isPlaying) playVideo(); };
+      const onError = () => reportError({ type: 'videoError', message: 'Format not supported or network error' });
       videoRef.current.addEventListener('canplay', onCanPlay);
       videoRef.current.addEventListener('error', onError);
-      
       return () => {
-        videoRef.current?.removeEventListener('canplay', onCanPlay);
-        videoRef.current?.removeEventListener('error', onError);
+        videoRef.current.removeEventListener('canplay', onCanPlay);
+        videoRef.current.removeEventListener('error', onError);
       };
     }
 
-    return () => {
-      if (hls) {
-        hls.destroy();
-        hlsRef.current = null;
-      }
-    };
-  }, [src, isPlaying, playVideo, reportError, getProxyUrl, usingProxy]);
+    return () => { if (hls) { hls.destroy(); hlsRef.current = null; } };
+  }, [src, isPlaying, playVideo, reportError]);
 
-  // Handle play/pause separately
+  // Handle play/pause
   useEffect(() => {
     if (!videoRef.current || !isReady) return;
-
-    if (isPlaying) {
-      playVideo();
-    } else {
-      videoRef.current.pause();
-    }
+    if (isPlaying) playVideo();
+    else videoRef.current.pause();
   }, [isPlaying, isReady, playVideo]);
-
-  const handleRetry = useCallback(() => {
-    if (retryCount >= MAX_RETRIES) {
-      setError('Nuk mund të luhet stream-i. Provo një tjetër.');
-      return;
-    }
-
-    setRetryCount(prev => prev + 1);
-    setError(null);
-    setUsingProxy(false);
-    errorReportedRef.current = false;
-    
-    // Reload HLS
-    if (hlsRef.current) {
-      hlsRef.current.destroy();
-      hlsRef.current = null;
-    }
-    
-    if (videoRef.current) {
-      videoRef.current.src = '';
-      videoRef.current.load();
-      
-      setTimeout(() => {
-        if (videoRef.current) {
-          videoRef.current.src = src;
-          videoRef.current.load();
-        }
-      }, 500);
-    }
-  }, [retryCount, src]);
 
   const handleFullscreen = useCallback(() => {
     if (videoRef.current) {
-      if (videoRef.current.requestFullscreen) {
-        videoRef.current.requestFullscreen();
-      } else if (videoRef.current.webkitRequestFullscreen) {
-        videoRef.current.webkitRequestFullscreen();
-      } else if (videoRef.current.msRequestFullscreen) {
-        videoRef.current.msRequestFullscreen();
-      }
+      if (videoRef.current.requestFullscreen) videoRef.current.requestFullscreen();
+      else if (videoRef.current.webkitRequestFullscreen) videoRef.current.webkitRequestFullscreen();
+      else if (videoRef.current.msRequestFullscreen) videoRef.current.msRequestFullscreen();
     }
   }, []);
 
-  const handleOpenDirect = useCallback(() => {
-    window.open(src, '_blank');
-  }, [src]);
+  const handleOpenDirect = useCallback(() => { window.open(src, '_blank'); }, [src]);
 
   if (!src) return null;
 
@@ -444,56 +170,41 @@ const HlsPlayer = ({
           poster={currentStreamInfo?.logo}
           crossOrigin="anonymous"
         />
-        
-        {/* Loading Indicator */}
+
         {!isReady && !error && (
           <div className="player-loading">
             <div className="loading-spinner"></div>
             <p>Duke ngarkuar stream-in...</p>
-            {usingProxy && <p className="proxy-info">Duke përdorur proxy...</p>}
           </div>
         )}
-        
-        {/* Buffering Indicator */}
+
         {isBuffering && isReady && isPlaying && (
           <div className="player-buffering">
             <div className="buffering-spinner"></div>
             <p>Duke bufferuar...</p>
           </div>
         )}
-        
-        {/* Error Display */}
+
         {error && (
           <div className="player-error">
             <span className="error-icon">⚠️</span>
             <p>{error}</p>
             <div className="error-actions">
-              <button onClick={handleRetry} className="retry-btn">
-                Provo përsëri
-              </button>
-              <button onClick={handleOpenDirect} className="direct-link-btn">
-                Hap në browser
-              </button>
+              <button onClick={() => videoRef.current?.load()} className="retry-btn">Provo përsëri</button>
+              <button onClick={handleOpenDirect} className="direct-link-btn">Hap në browser</button>
             </div>
           </div>
         )}
-        
-        {/* Play Button Overlay */}
+
         {!isPlaying && isReady && !error && (
-          <button className="play-btn-overlay" onClick={onPlayPause}>
-            ▶
-          </button>
+          <button className="play-btn-overlay" onClick={onPlayPause}>▶</button>
         )}
 
-        {/* Fullscreen Button */}
         {isReady && !error && (
-          <button className="fullscreen-btn" onClick={handleFullscreen}>
-            ⛶
-          </button>
+          <button className="fullscreen-btn" onClick={handleFullscreen}>⛶</button>
         )}
       </div>
 
-      {/* Channel Info */}
       {currentStreamInfo && (
         <div className="player-info">
           <div className="channel-info">
@@ -502,10 +213,7 @@ const HlsPlayer = ({
                 src={currentStreamInfo.logo} 
                 alt={currentStreamInfo.name}
                 className="channel-logo"
-                onError={(e) => {
-                  e.target.onerror = null;
-                  e.target.style.display = 'none';
-                }}
+                onError={(e) => { e.target.onerror = null; e.target.style.display = 'none'; }}
               />
             )}
             <div className="channel-details">
@@ -513,22 +221,12 @@ const HlsPlayer = ({
               <span className="channel-category">{currentStreamInfo.category}</span>
             </div>
           </div>
-          
           {currentEpg && (
             <div className="epg-info">
               <span className="epg-title">{currentEpg.title}</span>
               <span className="epg-time">
-                {new Date(currentEpg.start_timestamp * 1000).toLocaleTimeString([], { 
-                  hour: '2-digit', 
-                  minute: '2-digit' 
-                })}
+                {new Date(currentEpg.start_timestamp * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
               </span>
-            </div>
-          )}
-          
-          {usingProxy && (
-            <div className="proxy-badge">
-              Proxy
             </div>
           )}
         </div>
