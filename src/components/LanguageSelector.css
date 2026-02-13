@@ -1,0 +1,137 @@
+/* src/components/LanguageSelector.css */
+.language-selector {
+  position: relative;
+  display: inline-block;
+}
+
+.language-btn {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 1rem;
+  background: var(--btn-bg);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  color: var(--text-primary);
+  font-size: 0.9rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.language-btn:hover {
+  background: var(--btn-hover);
+  border-color: var(--primary-color);
+}
+
+.language-flag {
+  font-size: 1.2rem;
+}
+
+.language-code {
+  font-weight: 600;
+  letter-spacing: 0.5px;
+}
+
+.language-arrow {
+  font-size: 0.8rem;
+  margin-left: 0.25rem;
+  opacity: 0.7;
+}
+
+.language-dropdown {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  margin-top: 0.5rem;
+  min-width: 180px;
+  background: var(--dropdown-bg);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+  z-index: 1000;
+  overflow: hidden;
+  backdrop-filter: blur(10px);
+}
+
+.language-option {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  width: 100%;
+  padding: 0.75rem 1rem;
+  background: transparent;
+  border: none;
+  color: var(--text-primary);
+  font-size: 0.9rem;
+  text-align: left;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.language-option:hover {
+  background: var(--option-hover);
+}
+
+.language-option.active {
+  background: var(--option-active);
+  color: var(--primary-color);
+  font-weight: 500;
+}
+
+.option-flag {
+  font-size: 1.1rem;
+}
+
+.option-name {
+  flex: 1;
+}
+
+.option-check {
+  color: var(--primary-color);
+  font-weight: bold;
+}
+
+/* Dark theme */
+.theme-dark .language-selector {
+  --btn-bg: #1e293b;
+  --btn-hover: #2d3b4f;
+  --border-color: #334155;
+  --text-primary: #f1f5f9;
+  --dropdown-bg: rgba(30, 41, 59, 0.95);
+  --option-hover: #2d3b4f;
+  --option-active: rgba(59, 130, 246, 0.2);
+  --primary-color: #3b82f6;
+}
+
+/* Light theme */
+.theme-light .language-selector {
+  --btn-bg: #ffffff;
+  --btn-hover: #f1f5f9;
+  --border-color: #e2e8f0;
+  --text-primary: #0f172a;
+  --dropdown-bg: rgba(255, 255, 255, 0.95);
+  --option-hover: #f1f5f9;
+  --option-active: rgba(59, 130, 246, 0.1);
+  --primary-color: #2563eb;
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+  .language-btn {
+    padding: 0.4rem 0.75rem;
+  }
+  
+  .language-flag {
+    font-size: 1rem;
+  }
+  
+  .language-code {
+    font-size: 0.8rem;
+  }
+  
+  .language-dropdown {
+    min-width: 150px;
+    right: -10px;
+  }
+}
