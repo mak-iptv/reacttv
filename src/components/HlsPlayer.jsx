@@ -21,9 +21,46 @@ const HlsPlayer = ({
   const [error, setError] = useState(null);
   const [retryCount, setRetryCount] = useState(0);
   const [isBuffering, setIsBuffering] = useState(false);
+  const [useNativeControls, setUseNativeControls] = useState(false);
+  const [usingProxy, setUsingProxy] = useState(false);
+  const [proxyAttempts, setProxyAttempts] = useState(0);
   const bufferTimerRef = useRef(null);
   const errorReportedRef = useRef(false);
   const MAX_RETRIES = 3;
+  const MAX_PROXY_ATTEMPTS = 3;
+
+  // Lista e proxy-ve për të provuar
+  const PROXY_SERVICES = [
+    { name: 'corsproxy.io', url: (target) => `https://corsproxy.io/?${encodeURIComponent(target)}` },
+    { name: 'allorigins.win', url: (target) => `https://api.allorigins.win/raw?url=${encodeURIComponent(target)}` },
+    { name: 'cors-anywhere', url: (target) => `https://cors-anywhere.herokuapp.com/${target}` },
+    { name: 'thingproxy', url: (target) => `https://thingproxy.freeboard.io/fetch/${target}` },
+    { name: 'codetabs', url: (target) => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(target)}` }
+  ];
+
+  // Proxy URL function
+  const getProxyUrl = useCallback((url, attempt = 0) => {
+    if (!url) return url;
+    
+    // Nëse është HTTP dhe jemi në HTTPS, përdor proxy
+    if (url.startsWith('http://') && window.location.protocol === 'https:') {
+      console.log('🔄 Using proxy for HTTP URL:', url);
+      
+      // Provo proxy të ndryshme
+      if (attempt < PROXY_SERVICES.length) {
+        const proxy = PROXY_SERVICES[attempt];
+        console.log(`Trying proxy ${attempt + 1}: ${proxy.name}`);
+        return proxy.url(url);
+      }
+      
+      // Konverto HTTP në HTTPS nëse është e mundur
+      const httpsUrl = url.replace('http://', 'https://');
+      console.log('🔄 Trying HTTPS instead of HTTP:', httpsUrl);
+      return httpsUrl;
+    }
+    
+    return url;
+  }, []);
 
   // Clean up buffer timer
   useEffect(() => {
@@ -67,16 +104,56 @@ const HlsPlayer = ({
       console.warn('Play failed:', err);
       if (err.name === 'NotAllowedError') {
         setIsReady(true);
+      } else if (err.name === 'NotSupportedError') {
+        setError('Formati i videos nuk mbështetet');
+        reportError({ type: 'notSupported', message: err.message });
       }
       return false;
     }
-  }, []);
+  }, [reportError]);
+
+  // Funksion për të provuar me video direkt
+  const tryDirectPlayback = useCallback(() => {
+    console.log('🎬 Trying direct video playback');
+    setError(null);
+    setUsingProxy(false);
+    
+    if (hlsRef.current) {
+      hlsRef.current.destroy();
+      hlsRef.current = null;
+    }
+    
+    if (videoRef.current) {
+      videoRef.current.src = src;
+      videoRef.current.load();
+      
+      videoRef.current.addEventListener('canplay', () => {
+        setIsReady(true);
+        if (isPlaying) {
+          playVideo();
+        }
+      }, { once: true });
+      
+      videoRef.current.addEventListener('error', (e) => {
+        const videoError = videoRef.current?.error;
+        console.error('Direct playback error:', videoError);
+        
+        if (videoError?.code === 4) {
+          setError('Formati i videos nuk mbështetet');
+        } else {
+          setError('Nuk mund të luhet video direkt');
+        }
+      }, { once: true });
+    }
+  }, [src, isPlaying, playVideo]);
 
   // Initialize player
   useEffect(() => {
     if (!src || !videoRef.current) return;
 
     let hls = null;
+    let currentProxyAttempt = proxyAttempts;
+    
     setIsReady(false);
     setError(null);
     setIsBuffering(false);
@@ -88,50 +165,55 @@ const HlsPlayer = ({
       hlsRef.current = null;
     }
 
-    // Detekto llojin e stream-it
-    const isHlsStream = src.includes('.m3u8') || src.includes('playlist.m3u8');
+    // Përdor proxy nëse është e nevojshme
+    const streamUrl = getProxyUrl(src, currentProxyAttempt);
     
     console.log('🎬 Loading stream:', { 
-      src: src.substring(0, 100), 
-      isHlsStream,
-      type: isHlsStream ? 'HLS' : 'Direct'
+      original: src.substring(0, 100),
+      using: streamUrl.substring(0, 100),
+      isHls: streamUrl.includes('.m3u8'),
+      usingProxy: currentProxyAttempt > 0,
+      proxyAttempt: currentProxyAttempt
     });
 
-    // Për HLS streams - GJITHMONË përdor HLS.js për .m3u8
-    if (isHlsStream) {
+    // Për HLS streams
+    if (streamUrl.includes('.m3u8') || streamUrl.includes('playlist.m3u8')) {
       console.log('🎬 Using HLS.js for m3u8 stream');
       
       if (Hls.isSupported()) {
         try {
           hls = new Hls({
             enableWorker: true,
-            lowLatencyMode: true,
+            lowLatencyMode: false,
             backBufferLength: 60,
             maxBufferLength: 30,
             maxMaxBufferLength: 60,
             maxBufferSize: 50 * 1000 * 1000,
             maxBufferHole: 0.5,
-            manifestLoadingTimeOut: 20000,
+            manifestLoadingTimeOut: 30000,
             manifestLoadingMaxRetry: 5,
-            manifestLoadingRetryDelay: 1000,
+            manifestLoadingRetryDelay: 2000,
             manifestLoadingMaxRetryTimeout: 60000,
-            levelLoadingTimeOut: 20000,
+            levelLoadingTimeOut: 30000,
             levelLoadingMaxRetry: 4,
-            levelLoadingRetryDelay: 1000,
+            levelLoadingRetryDelay: 2000,
             levelLoadingMaxRetryTimeout: 60000,
-            fragLoadingTimeOut: 30000,
+            fragLoadingTimeOut: 40000,
             fragLoadingMaxRetry: 4,
-            fragLoadingRetryDelay: 1000,
+            fragLoadingRetryDelay: 2000,
             fragLoadingMaxRetryTimeout: 60000,
             startLevel: -1,
             debug: false,
             xhrSetup: (xhr, url) => {
-              // Shto headers për Xtream
-              if (url.includes('balkan-x.net')) {
-                xhr.withCredentials = false;
-                // Shto referrer dhe origin
-                xhr.setRequestHeader('Referer', 'http://balkan-x.net/');
-                xhr.setRequestHeader('Origin', 'http://balkan-x.net');
+              xhr.setRequestHeader('Accept', '*/*');
+              xhr.setRequestHeader('Accept-Language', 'en-US,en;q=0.9');
+              xhr.setRequestHeader('User-Agent', navigator.userAgent);
+              xhr.withCredentials = false;
+              
+              // Shto referrer për disa stream-e
+              if (url.includes('panther-tv.com') || url.includes('balkan-x.net')) {
+                xhr.setRequestHeader('Referer', 'https://google.com/');
+                xhr.setRequestHeader('Origin', 'https://google.com');
               }
             }
           });
@@ -140,7 +222,7 @@ const HlsPlayer = ({
 
           hls.on(Hls.Events.MEDIA_ATTACHED, () => {
             console.log('✅ HLS media attached');
-            hls.loadSource(src);
+            hls.loadSource(streamUrl);
           });
 
           hls.on(Hls.Events.MANIFEST_PARSED, (event, data) => {
@@ -161,35 +243,88 @@ const HlsPlayer = ({
               response: data.response
             });
             
-            // 401 Unauthorized error
-            if (data.response?.code === 401 || data.details?.includes('401')) {
-              setError('Nuk keni autorizim për këtë stream. Kontrollo kredencialet.');
-              reportError({ 
-                type: 'authError', 
-                message: 'Unauthorized - 401',
-                details: 'Kredenciale të pavlefshme ose të skaduara'
-              });
+            // Manifest parsing error
+            if (data.details === 'manifestParsingError') {
+              console.warn('⚠️ Manifest parsing error. Manifest might be invalid or protected.');
+              
+              // Provo me proxy tjetër
+              if (currentProxyAttempt < PROXY_SERVICES.length - 1) {
+                console.log(`Trying next proxy (${currentProxyAttempt + 2}/${PROXY_SERVICES.length})`);
+                setProxyAttempts(prev => prev + 1);
+                
+                if (hls) {
+                  hls.destroy();
+                }
+                
+                // Reload with next proxy
+                setTimeout(() => {
+                  if (videoRef.current) {
+                    const nextProxyUrl = getProxyUrl(src, currentProxyAttempt + 1);
+                    videoRef.current.src = '';
+                    videoRef.current.load();
+                    
+                    const newHls = new Hls({ ...hls.config });
+                    newHls.loadSource(nextProxyUrl);
+                    newHls.attachMedia(videoRef.current);
+                    hlsRef.current = newHls;
+                  }
+                }, 1000);
+                return;
+              }
+              
+              // Nëse asnjë proxy nuk funksionon, provo video direkt
+              setError('Nuk mund të lexohet playlist-i. Duke provuar video direkt...');
+              setTimeout(() => {
+                tryDirectPlayback();
+              }, 1500);
               return;
+            }
+            
+            // Mixed content error
+            if (data.response?.url && data.response.url.startsWith('http:') && window.location.protocol === 'https:') {
+              console.warn('⚠️ Mixed content detected.');
+              
+              if (currentProxyAttempt < PROXY_SERVICES.length - 1) {
+                setProxyAttempts(prev => prev + 1);
+                return;
+              }
+            }
+            
+            // 401 Unauthorized
+            if (data.response?.code === 401 || data.details?.includes('401')) {
+              setError('Nuk keni autorizim për këtë stream.');
+              reportError({ type: 'authError', message: 'Unauthorized' });
+              return;
+            }
+            
+            // CORS error
+            if (data.details === 'manifestLoadError' && data.response?.code === 0) {
+              console.warn('⚠️ CORS error detected');
+              
+              if (currentProxyAttempt < PROXY_SERVICES.length - 1) {
+                setProxyAttempts(prev => prev + 1);
+                return;
+              }
             }
             
             if (data.fatal) {
               switch (data.type) {
                 case Hls.ErrorTypes.NETWORK_ERROR:
                   console.log('Network error, trying to recover...');
-                  hls.startLoad();
+                  setTimeout(() => {
+                    hls.startLoad();
+                  }, 2000);
                   break;
+                  
                 case Hls.ErrorTypes.MEDIA_ERROR:
                   console.log('Media error, trying to recover...');
                   hls.recoverMediaError();
                   break;
+                  
                 default:
                   console.log('Fatal error, cannot recover');
-                  setError('Problem me stream-in. Provo përsëri.');
-                  reportError({ 
-                    type: 'hlsError', 
-                    message: `HLS Error: ${data.type}`,
-                    details: data.details 
-                  });
+                  setError('Problem me stream-in. Duke provuar metodë alternative...');
+                  setTimeout(tryDirectPlayback, 1000);
                   break;
               }
             }
@@ -205,7 +340,7 @@ const HlsPlayer = ({
       } else if (videoRef.current.canPlayType('application/vnd.apple.mpegurl')) {
         // Safari native HLS
         console.log('🎬 Using Safari native HLS');
-        videoRef.current.src = src;
+        videoRef.current.src = streamUrl;
         videoRef.current.load();
         
         const onLoadedMetadata = () => {
@@ -219,9 +354,10 @@ const HlsPlayer = ({
           const videoError = videoRef.current?.error;
           console.error('Safari HLS error:', videoError);
           
-          if (videoError?.code === 4) {
-            setError('Nuk keni autorizim për këtë stream');
-            reportError({ type: 'authError', message: 'Unauthorized' });
+          if (currentProxyAttempt < PROXY_SERVICES.length - 1) {
+            setProxyAttempts(prev => prev + 1);
+          } else {
+            setError('Nuk mund të luhet stream-i në Safari');
           }
         };
         
@@ -233,39 +369,10 @@ const HlsPlayer = ({
           videoRef.current?.removeEventListener('error', onError);
         };
       } else {
-        setError('HLS nuk mbështetet në këtë browser');
-        reportError({ type: 'notSupported', message: 'HLS not supported' });
+        tryDirectPlayback();
       }
     } else {
-      // Për video direkte (MP4, TS, etj)
-      console.log('🎬 Using direct video playback');
-      videoRef.current.src = src;
-      videoRef.current.load();
-      
-      const onCanPlay = () => {
-        setIsReady(true);
-        if (isPlaying) {
-          playVideo();
-        }
-      };
-
-      const onError = () => {
-        const videoError = videoRef.current?.error;
-        console.error('Direct video error:', videoError);
-        
-        if (videoError?.code === 4) {
-          setError('Formati i videos nuk mbështetet ose nuk keni autorizim');
-          reportError({ type: 'videoError', message: 'Format not supported or unauthorized' });
-        }
-      };
-
-      videoRef.current.addEventListener('canplay', onCanPlay);
-      videoRef.current.addEventListener('error', onError);
-      
-      return () => {
-        videoRef.current?.removeEventListener('canplay', onCanPlay);
-        videoRef.current?.removeEventListener('error', onError);
-      };
+      tryDirectPlayback();
     }
 
     return () => {
@@ -274,7 +381,7 @@ const HlsPlayer = ({
         hlsRef.current = null;
       }
     };
-  }, [src, isPlaying, playVideo, reportError]);
+  }, [src, isPlaying, playVideo, reportError, getProxyUrl, proxyAttempts, tryDirectPlayback]);
 
   // Handle play/pause separately
   useEffect(() => {
@@ -295,9 +402,11 @@ const HlsPlayer = ({
 
     setRetryCount(prev => prev + 1);
     setError(null);
+    setProxyAttempts(0);
+    setUsingProxy(false);
     errorReportedRef.current = false;
     
-    // Reload HLS
+    // Reload
     if (hlsRef.current) {
       hlsRef.current.destroy();
       hlsRef.current = null;
@@ -312,7 +421,7 @@ const HlsPlayer = ({
           videoRef.current.src = src;
           videoRef.current.load();
         }
-      }, 100);
+      }, 500);
     }
   }, [retryCount, src]);
 
@@ -328,6 +437,15 @@ const HlsPlayer = ({
     }
   }, []);
 
+  const handleOpenDirect = useCallback(() => {
+    window.open(src, '_blank');
+  }, [src]);
+
+  const handleNextProxy = useCallback(() => {
+    setProxyAttempts(prev => prev + 1);
+    setError(null);
+  }, []);
+
   if (!src) return null;
 
   return (
@@ -340,6 +458,7 @@ const HlsPlayer = ({
           controls={true}
           preload="auto"
           poster={currentStreamInfo?.logo}
+          crossOrigin="anonymous"
         />
         
         {/* Loading Indicator */}
@@ -347,6 +466,11 @@ const HlsPlayer = ({
           <div className="player-loading">
             <div className="loading-spinner"></div>
             <p>Duke ngarkuar stream-in...</p>
+            {proxyAttempts > 0 && (
+              <p className="proxy-info">
+                Duke provuar metodën {proxyAttempts + 1}/{PROXY_SERVICES.length}...
+              </p>
+            )}
           </div>
         )}
         
@@ -363,15 +487,19 @@ const HlsPlayer = ({
           <div className="player-error">
             <span className="error-icon">⚠️</span>
             <p>{error}</p>
-            <button onClick={handleRetry} className="retry-btn">
-              Provo përsëri
-            </button>
-            <button 
-              onClick={() => window.open(src, '_blank')} 
-              className="direct-link-btn"
-            >
-              Hap në browser
-            </button>
+            <div className="error-actions">
+              <button onClick={handleRetry} className="retry-btn">
+                Provo përsëri
+              </button>
+              {proxyAttempts < PROXY_SERVICES.length - 1 && (
+                <button onClick={handleNextProxy} className="proxy-btn">
+                  Provo metodë tjetër
+                </button>
+              )}
+              <button onClick={handleOpenDirect} className="direct-link-btn">
+                Hap në browser
+              </button>
+            </div>
           </div>
         )}
         
@@ -420,6 +548,12 @@ const HlsPlayer = ({
                   minute: '2-digit' 
                 })}
               </span>
+            </div>
+          )}
+          
+          {proxyAttempts > 0 && (
+            <div className="proxy-badge">
+              Proxy {proxyAttempts + 1}/{PROXY_SERVICES.length}
             </div>
           )}
         </div>
