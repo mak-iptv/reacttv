@@ -1,4 +1,3 @@
-// src/components/HlsPlayer.jsx
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import Hls from 'hls.js';
 import './HlsPlayer.css';
@@ -9,7 +8,7 @@ const HlsPlayer = ({
   onPlayPause, 
   onClose, 
   onError,
-  theme,
+  theme = 'dark',
   currentStreamInfo,
   currentEpg
 }) => {
@@ -17,144 +16,157 @@ const HlsPlayer = ({
   const hlsRef = useRef(null);
   const [isReady, setIsReady] = useState(false);
   const [error, setError] = useState(null);
+  const [retryCount, setRetryCount] = useState(0);
   const [isBuffering, setIsBuffering] = useState(false);
   const bufferTimerRef = useRef(null);
   const errorReportedRef = useRef(false);
+  const MAX_RETRIES = 3;
 
-  // Clean up buffer timer
-  useEffect(() => () => clearTimeout(bufferTimerRef.current), []);
-
-  // Raporton error vetëm një herë
+  // Raportimi i gabimeve
   const reportError = useCallback((errorData) => {
     if (!errorReportedRef.current && onError) {
       errorReportedRef.current = true;
       onError({
         type: errorData?.type || 'unknown',
-        message: errorData?.message || errorData?.details || 'Gabim i panjohur',
-        code: errorData?.code,
-        details: errorData?.details || errorData?.message
+        message: errorData?.message || 'Gabim gjatë transmetimit',
+        details: errorData?.details
       });
-      setTimeout(() => { errorReportedRef.current = false; }, 2000);
+      setTimeout(() => { errorReportedRef.current = false; }, 3000);
     }
   }, [onError]);
 
-  const playVideo = useCallback(async () => {
-    if (!videoRef.current) return false;
-    try {
-      await videoRef.current.play();
-      setIsBuffering(false);
-      return true;
-    } catch (err) {
-      if (err.name === 'NotAllowedError') setIsReady(true);
-      else reportError({ type: 'playError', message: err.message });
-      return false;
+  // Funksioni kryesor i nisjes së videos
+  const startVideo = useCallback((url) => {
+    const player = videoRef.current;
+    if (!player || !url) return;
+
+    // 1. Pastrim i plotë i instancës ekzistuese
+    if (hlsRef.current) {
+      hlsRef.current.destroy();
+      hlsRef.current = null;
     }
-  }, [reportError]);
+    player.pause();
+    player.src = ""; // Liron memorien e browser-it
+    player.load();
 
-  // Initialize player
+    // 2. Trajtimi i URL-ve (Mixed Content)
+    let finalUrl = url;
+    if (window.location.protocol === 'https:' && url.startsWith('http:')) {
+      finalUrl = url.replace('http://', 'https://');
+    }
+
+    // 3. Kontrolli i teknologjisë (HLS.js vs Native)
+    const isM3U8 = finalUrl.includes('.m3u8');
+
+    if (isM3U8 && Hls.isSupported()) {
+      const hls = new Hls({
+        enableWorker: true,
+        lowLatencyMode: true,
+        manifestLoadingMaxRetry: 5,
+        xhrSetup: (xhr) => {
+          // Disa providera IPTV kërkojnë headers specifikë
+          if (url.includes('panther-tv') || url.includes('balkan-x')) {
+            xhr.setRequestHeader('X-Requested-With', 'XMLHttpRequest');
+          }
+        }
+      });
+
+      hls.loadSource(finalUrl);
+      hls.attachMedia(player);
+      hlsRef.current = hls;
+
+      hls.on(Hls.Events.MANIFEST_PARSED, () => {
+        setIsReady(true);
+        setError(null);
+        if (isPlaying) player.play().catch(() => {});
+      });
+
+      hls.on(Hls.Events.ERROR, (event, data) => {
+        if (data.fatal) {
+          switch (data.type) {
+            case Hls.ErrorTypes.NETWORK_ERROR:
+              hls.startLoad();
+              break;
+            case Hls.ErrorTypes.MEDIA_ERROR:
+              hls.recoverMediaError();
+              break;
+            default:
+              setError('Stream-i nuk mund të ngarkohet');
+              reportError(data);
+              hls.destroy();
+              break;
+          }
+        }
+      });
+    } 
+    // Mbështetja për Safari (iOS/Mac)
+    else if (player.canPlayType('application/vnd.apple.mpegurl')) {
+      player.src = finalUrl;
+      player.addEventListener('loadedmetadata', () => {
+        setIsReady(true);
+        if (isPlaying) player.play().catch(() => {});
+      });
+    }
+    // Formate të tjera (mp4, etj)
+    else {
+      player.src = finalUrl;
+      setIsReady(true);
+    }
+  }, [isPlaying, reportError]);
+
+  // Efekti kur ndryshon burimi (src)
   useEffect(() => {
-    if (!src || !videoRef.current) return;
-
-    let hls = null;
     setIsReady(false);
     setError(null);
-    setIsBuffering(false);
-    errorReportedRef.current = false;
-
-    if (hlsRef.current) { hlsRef.current.destroy(); hlsRef.current = null; }
-
-    // Stream URL
-    const streamUrl = src;
-
-    if (streamUrl.includes('.m3u8')) {
-      if (Hls.isSupported()) {
-        try {
-          hls = new Hls({ 
-            enableWorker: true, 
-            debug: false,
-            xhrSetup: (xhr) => {
-              // Vetëm headers të sigurta nga browser
-              xhr.setRequestHeader('Accept', '*/*');
-              xhr.setRequestHeader('Accept-Language', 'en-US,en;q=0.9');
-            }
-          });
-          hlsRef.current = hls;
-
-          hls.on(Hls.Events.MEDIA_ATTACHED, () => hls.loadSource(streamUrl));
-
-          hls.on(Hls.Events.MANIFEST_PARSED, (event, data) => {
-            setIsReady(true);
-            if (isPlaying) playVideo();
-          });
-
-          hls.on(Hls.Events.ERROR, (event, data) => {
-            console.error('HLS error:', data);
-            if (data.fatal) {
-              switch (data.type) {
-                case Hls.ErrorTypes.NETWORK_ERROR:
-                  setTimeout(() => hls.startLoad(), 2000);
-                  break;
-                case Hls.ErrorTypes.MEDIA_ERROR:
-                  hls.recoverMediaError();
-                  break;
-                default:
-                  setError('Problem me stream-in.');
-                  reportError({ type: 'hlsError', message: data.details });
-                  break;
-              }
-            }
-          });
-
-          hls.attachMedia(videoRef.current);
-        } catch (err) {
-          setError('Nuk mund të inicializohet HLS player');
-          reportError({ type: 'initError', message: err.message });
-        }
-      } else if (videoRef.current.canPlayType('application/vnd.apple.mpegurl')) {
-        videoRef.current.src = streamUrl;
-        videoRef.current.load();
-        const onLoadedMetadata = () => { setIsReady(true); if (isPlaying) playVideo(); };
-        const onError = () => reportError({ type: 'videoError', message: 'Safari HLS error' });
-        videoRef.current.addEventListener('loadedmetadata', onLoadedMetadata);
-        videoRef.current.addEventListener('error', onError);
-        return () => {
-          videoRef.current.removeEventListener('loadedmetadata', onLoadedMetadata);
-          videoRef.current.removeEventListener('error', onError);
-        };
-      }
-    } else {
-      // Direct video (MP4, TS, ...)
-      videoRef.current.src = streamUrl;
-      videoRef.current.load();
-      const onCanPlay = () => { setIsReady(true); if (isPlaying) playVideo(); };
-      const onError = () => reportError({ type: 'videoError', message: 'Format not supported or network error' });
-      videoRef.current.addEventListener('canplay', onCanPlay);
-      videoRef.current.addEventListener('error', onError);
-      return () => {
-        videoRef.current.removeEventListener('canplay', onCanPlay);
-        videoRef.current.removeEventListener('error', onError);
-      };
+    setRetryCount(0);
+    
+    if (src) {
+      startVideo(src);
     }
 
-    return () => { if (hls) { hls.destroy(); hlsRef.current = null; } };
-  }, [src, isPlaying, playVideo, reportError]);
+    return () => {
+      if (hlsRef.current) {
+        hlsRef.current.destroy();
+        hlsRef.current = null;
+      }
+    };
+  }, [src, startVideo]);
 
-  // Handle play/pause
+  // Kontrolli Play/Pause
   useEffect(() => {
     if (!videoRef.current || !isReady) return;
-    if (isPlaying) playVideo();
-    else videoRef.current.pause();
-  }, [isPlaying, isReady, playVideo]);
-
-  const handleFullscreen = useCallback(() => {
-    if (videoRef.current) {
-      if (videoRef.current.requestFullscreen) videoRef.current.requestFullscreen();
-      else if (videoRef.current.webkitRequestFullscreen) videoRef.current.webkitRequestFullscreen();
-      else if (videoRef.current.msRequestFullscreen) videoRef.current.msRequestFullscreen();
+    if (isPlaying) {
+      videoRef.current.play().catch(() => onPlayPause?.());
+    } else {
+      videoRef.current.pause();
     }
+  }, [isPlaying, isReady, onPlayPause]);
+
+  // Eventet e buffering
+  useEffect(() => {
+    const player = videoRef.current;
+    if (!player) return;
+
+    const handleWaiting = () => setIsBuffering(true);
+    const handlePlaying = () => setIsBuffering(false);
+
+    player.addEventListener('waiting', handleWaiting);
+    player.addEventListener('playing', handlePlaying);
+
+    return () => {
+      player.removeEventListener('waiting', handleWaiting);
+      player.removeEventListener('playing', handlePlaying);
+    };
   }, []);
 
-  const handleOpenDirect = useCallback(() => { window.open(src, '_blank'); }, [src]);
+  const handleRetry = () => {
+    if (retryCount < MAX_RETRIES) {
+      setRetryCount(prev => prev + 1);
+      startVideo(src);
+    } else {
+      setError("Pati një problem të përsëritur. Provo kanal tjetër.");
+    }
+  };
 
   if (!src) return null;
 
@@ -166,69 +178,42 @@ const HlsPlayer = ({
           className="video-element"
           playsInline
           controls={true}
-          preload="auto"
           poster={currentStreamInfo?.logo}
           crossOrigin="anonymous"
         />
 
+        {/* Shfaqja e Loading */}
         {!isReady && !error && (
-          <div className="player-loading">
-            <div className="loading-spinner"></div>
-            <p>Duke ngarkuar stream-in...</p>
+          <div className="player-overlay loading">
+            <div className="spinner"></div>
+            <p>Duke u lidhur...</p>
           </div>
         )}
 
-        {isBuffering && isReady && isPlaying && (
-          <div className="player-buffering">
-            <div className="buffering-spinner"></div>
-            <p>Duke bufferuar...</p>
-          </div>
-        )}
-
+        {/* Shfaqja e Gabimit */}
         {error && (
-          <div className="player-error">
-            <span className="error-icon">⚠️</span>
+          <div className="player-overlay error">
             <p>{error}</p>
-            <div className="error-actions">
-              <button onClick={() => videoRef.current?.load()} className="retry-btn">Provo përsëri</button>
-              <button onClick={handleOpenDirect} className="direct-link-btn">Hap në browser</button>
-            </div>
+            <button onClick={handleRetry} className="retry-btn">Provo përsëri</button>
           </div>
         )}
 
-        {!isPlaying && isReady && !error && (
-          <button className="play-btn-overlay" onClick={onPlayPause}>▶</button>
-        )}
-
-        {isReady && !error && (
-          <button className="fullscreen-btn" onClick={handleFullscreen}>⛶</button>
+        {/* Buffering */}
+        {isBuffering && isReady && (
+          <div className="buffering-icon">🌀</div>
         )}
       </div>
 
+      {/* Info Paneli poshtë videos */}
       {currentStreamInfo && (
-        <div className="player-info">
-          <div className="channel-info">
-            {currentStreamInfo.logo && (
-              <img 
-                src={currentStreamInfo.logo} 
-                alt={currentStreamInfo.name}
-                className="channel-logo"
-                onError={(e) => { e.target.onerror = null; e.target.style.display = 'none'; }}
-              />
-            )}
-            <div className="channel-details">
-              <span className="channel-name">{currentStreamInfo.name}</span>
-              <span className="channel-category">{currentStreamInfo.category}</span>
+        <div className="player-footer">
+          <div className="channel-meta">
+            {currentStreamInfo.logo && <img src={currentStreamInfo.logo} alt="" />}
+            <div>
+              <h3>{currentStreamInfo.name}</h3>
+              <p>{currentEpg?.title || 'Nuk ka informacion EPG'}</p>
             </div>
           </div>
-          {currentEpg && (
-            <div className="epg-info">
-              <span className="epg-title">{currentEpg.title}</span>
-              <span className="epg-time">
-                {new Date(currentEpg.start_timestamp * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-              </span>
-            </div>
-          )}
         </div>
       )}
     </div>
