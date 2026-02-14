@@ -1,4 +1,3 @@
-// XtreamLogin.jsx
 import React, { useState } from 'react';
 import './XtreamLogin.css';
 
@@ -6,30 +5,65 @@ const XtreamLogin = ({ onLogin, onClose, isLoading = false, theme = 'dark' }) =>
   const [server, setServer] = useState('');
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
+  const [error, setError] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [saveCredentials, setSaveCredentials] = useState(true);
 
-  const handleSubmit = (e) => {
-    e.preventDefault();
-    onLogin({ server, username, password, saveCredentials });
+  const normalizeServer = (url) => {
+    let clean = url.trim();
+
+    if (!clean.startsWith('http://') && !clean.startsWith('https://')) {
+      clean = 'http://' + clean;
+    }
+
+    return clean.replace(/\/+$/, ''); // heq slash në fund
   };
 
-  const isFormValid = server.trim() !== '' && username.trim() !== '' && password.trim() !== '';
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setError('');
+
+    if (!server || !username || !password) {
+      setError('Plotëso të gjitha fushat.');
+      return;
+    }
+
+    const cleanServer = normalizeServer(server);
+
+    try {
+      await onLogin({
+        server: cleanServer,
+        username: username.trim(),
+        password: password.trim(),
+        saveCredentials
+      });
+    } catch (err) {
+      setError(err.message || 'Gabim gjatë lidhjes me serverin.');
+    }
+  };
+
+  const isFormValid =
+    server.trim() !== '' &&
+    username.trim() !== '' &&
+    password.trim() !== '';
 
   return (
     <div className={`xtream-login ${theme}`}>
       <button className="close" onClick={onClose}>×</button>
 
       <form onSubmit={handleSubmit}>
+        <h2>Xtream Login</h2>
+
+        {error && <div className="error-message">{error}</div>}
+
         <label>Server URL</label>
         <input
           type="text"
           value={server}
           onChange={(e) => setServer(e.target.value)}
-          placeholder="http://example.com:8080"
+          placeholder="example.com:8080"
           disabled={isLoading}
           required
-          autoComplete="off"
         />
 
         <label>Username</label>
@@ -37,10 +71,8 @@ const XtreamLogin = ({ onLogin, onClose, isLoading = false, theme = 'dark' }) =>
           type="text"
           value={username}
           onChange={(e) => setUsername(e.target.value)}
-          placeholder="Username"
           disabled={isLoading}
           required
-          autoComplete="username"
         />
 
         <label>Password</label>
@@ -49,22 +81,19 @@ const XtreamLogin = ({ onLogin, onClose, isLoading = false, theme = 'dark' }) =>
             type={showPassword ? 'text' : 'password'}
             value={password}
             onChange={(e) => setPassword(e.target.value)}
-            placeholder="Password"
             disabled={isLoading}
             required
-            autoComplete="current-password"
           />
           <button
             type="button"
             onClick={() => setShowPassword(!showPassword)}
-            aria-label={showPassword ? 'Hide password' : 'Show password'}
             disabled={isLoading}
           >
             {showPassword ? '👁️' : '🙈'}
           </button>
         </div>
 
-        <label>
+        <label className="checkbox">
           <input
             type="checkbox"
             checked={saveCredentials}
@@ -80,12 +109,6 @@ const XtreamLogin = ({ onLogin, onClose, isLoading = false, theme = 'dark' }) =>
       </form>
     </div>
   );
-};
-
-// Default props
-XtreamLogin.defaultProps = {
-  isLoading: false,
-  theme: 'dark',
 };
 
 export default XtreamLogin;
