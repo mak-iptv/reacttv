@@ -2,22 +2,38 @@
 import axios from 'axios';
 import { STREAM_TYPES } from '../constants/iptv';
 
+// Helper për thirrje te proxy API
+const callXtreamApi = async (server, username, password, extraParams = {}) => {
+  try {
+    const response = await axios.get('/api/xtream', {
+      params: {
+        server,
+        username,
+        password,
+        ...extraParams
+      },
+      timeout: 10000
+    });
+    return response.data;
+  } catch (error) {
+    console.error('XTREAM API ERROR:', error);
+    throw error;
+  }
+};
+
 // ================ XTREAM CODES API ================
 
-/**
- * Verifikon kredencialet e Xtream Codes
- */
 export const verifyXtreamCredentials = async (server, username, password) => {
   try {
-    const url = `${server}/player_api.php?username=${username}&password=${password}`;
-    const response = await axios.get(url, { timeout: 10000 });
-    
-    if (response.data && response.data.user_info) {
+    const data = await callXtreamApi(server, username, password);
+
+    if (data && data.user_info) {
       return {
         success: true,
-        data: response.data
+        data
       };
     }
+
     return {
       success: false,
       error: 'Kredencialet e gabuara'
@@ -25,51 +41,37 @@ export const verifyXtreamCredentials = async (server, username, password) => {
   } catch (error) {
     return {
       success: false,
-      error: error.message
+      error: error.message || 'Gabim gjatë lidhjes me serverin'
     };
   }
 };
 
-/**
- * Login me Xtream Codes
- */
 export const xtreamLogin = verifyXtreamCredentials;
 
-/**
- * Merr informacionin e serverit
- */
 export const getXtreamServerInfo = async (server, username, password) => {
   try {
-    const url = `${server}/player_api.php?username=${username}&password=${password}`;
-    const response = await axios.get(url);
-    return response.data || {};
+    const data = await callXtreamApi(server, username, password);
+    return data || {};
   } catch (error) {
     console.error('Gabim gjatë marrjes së informacionit të serverit:', error);
     return {};
   }
 };
 
-/**
- * Merr kategoritë sipas tipit (live, movie, series)
- */
 export const getXtreamCategories = async (server, username, password, type = 'live') => {
   try {
     let action = 'get_live_categories';
     if (type === 'movie') action = 'get_vod_categories';
     if (type === 'series') action = 'get_series_categories';
-    
-    const url = `${server}/player_api.php?username=${username}&password=${password}&action=${action}`;
-    const response = await axios.get(url);
-    return response.data || [];
+
+    const data = await callXtreamApi(server, username, password, { action });
+    return data || [];
   } catch (error) {
     console.error(`Gabim gjatë marrjes së kategorive ${type}:`, error);
     return [];
   }
 };
 
-/**
- * Merr të gjitha kategoritë (live, movies, series)
- */
 export const getAllCategories = async (server, username, password) => {
   try {
     const [live, movies, series] = await Promise.all([
@@ -89,31 +91,23 @@ export const getAllCategories = async (server, username, password) => {
   }
 };
 
-/**
- * Merr kanalet sipas tipit dhe kategorisë
- */
 export const getXtreamChannels = async (server, username, password, type = 'live', categoryId = null) => {
   try {
     let action = 'get_live_streams';
     if (type === 'movie') action = 'get_vod_streams';
     if (type === 'series') action = 'get_series';
-    
-    let url = `${server}/player_api.php?username=${username}&password=${password}&action=${action}`;
-    if (categoryId) {
-      url += `&category_id=${categoryId}`;
-    }
-    
-    const response = await axios.get(url);
-    return response.data || [];
+
+    const params = { action };
+    if (categoryId) params.category_id = categoryId;
+
+    const data = await callXtreamApi(server, username, password, params);
+    return data || [];
   } catch (error) {
     console.error(`Gabim gjatë marrjes së kanaleve ${type}:`, error);
     return [];
   }
 };
 
-/**
- * Merr të gjithë përmbajtjen (live, movies, series)
- */
 export const getAllContent = async (server, username, password) => {
   try {
     const [live, movies, series] = await Promise.all([
@@ -133,44 +127,42 @@ export const getAllContent = async (server, username, password) => {
   }
 };
 
-/**
- * Merr informacionin e kanalit
- */
 export const getChannelInfo = async (server, username, password, streamId, type = 'live') => {
   try {
     let action = 'get_live_info';
     if (type === 'movie') action = 'get_vod_info';
     if (type === 'series') action = 'get_series_info';
-    
-    const url = `${server}/player_api.php?username=${username}&password=${password}&action=${action}&stream_id=${streamId}`;
-    const response = await axios.get(url);
-    return response.data || {};
+
+    const data = await callXtreamApi(server, username, password, {
+      action,
+      stream_id: streamId
+    });
+
+    return data || {};
   } catch (error) {
     console.error('Gabim gjatë marrjes së informacionit të kanalit:', error);
     return {};
   }
 };
 
-/**
- * Merr EPG për kanalin
- */
 export const getEPG = async (server, username, password, streamId, limit = 5) => {
   try {
-    const url = `${server}/player_api.php?username=${username}&password=${password}&action=get_short_epg&stream_id=${streamId}&limit=${limit}`;
-    const response = await axios.get(url);
-    return response.data?.epg_listings || [];
+    const data = await callXtreamApi(server, username, password, {
+      action: 'get_short_epg',
+      stream_id: streamId,
+      limit
+    });
+
+    return data?.epg_listings || [];
   } catch (error) {
     console.error('Gabim gjatë marrjes së EPG:', error);
     return [];
   }
 };
 
-/**
- * Ndërton URL-në e stream-it
- */
 export const buildStreamUrl = (type, streamId, server, username, password, extension = 'm3u8') => {
   if (!streamId || !server || !username || !password) return null;
-  
+
   let url = '';
   switch (type) {
     case STREAM_TYPES.LIVE:
@@ -185,41 +177,35 @@ export const buildStreamUrl = (type, streamId, server, username, password, exten
     default:
       url = `${server}/live/${username}/${password}/${streamId}.${extension}`;
   }
-  
+
   return url;
 };
 
 // ================ M3U FUNCTIONS ================
 
-/**
- * Verifikon nëse teksti është M3U valid
- */
 export const isValidM3U = (content) => {
   if (!content || typeof content !== 'string') return false;
   return content.trim().startsWith('#EXTM3U');
 };
 
-/**
- * Parse M3U playlist
- */
 export const parseM3U = (content) => {
   if (!isValidM3U(content)) return [];
-  
+
   const lines = content.split('\n');
   const channels = [];
   let currentChannel = null;
-  
+
   lines.forEach(line => {
     line = line.trim();
     if (!line) return;
-    
+
     if (line.startsWith('#EXTINF:')) {
       const match = line.match(/#EXTINF:(-?\d+)(?:\s+(.*?))?,(.*)/);
       if (match) {
         const duration = parseInt(match[1]) || -1;
         const attributes = match[2] || '';
         const name = match[3] || 'Pa emër';
-        
+
         currentChannel = {
           id: `m3u_${Date.now()}_${Math.random()}`,
           name,
@@ -231,16 +217,16 @@ export const parseM3U = (content) => {
           url: '',
           stream_url: ''
         };
-        
+
         const tvgIdMatch = attributes.match(/tvg-id="([^"]*)"/);
         if (tvgIdMatch) currentChannel.tvgId = tvgIdMatch[1];
-        
+
         const tvgNameMatch = attributes.match(/tvg-name="([^"]*)"/);
         if (tvgNameMatch) currentChannel.tvgName = tvgNameMatch[1];
-        
+
         const tvgLogoMatch = attributes.match(/tvg-logo="([^"]*)"/);
         if (tvgLogoMatch) currentChannel.tvgLogo = tvgLogoMatch[1];
-        
+
         const groupMatch = attributes.match(/group-title="([^"]*)"/);
         if (groupMatch) currentChannel.groupTitle = groupMatch[1];
       }
@@ -251,27 +237,23 @@ export const parseM3U = (content) => {
       currentChannel = null;
     }
   });
-  
+
   return channels;
 };
 
-/**
- * Merr M3U nga URL - Version i thjeshtë pa proxy
- */
 export const fetchM3UFromUrl = async (url) => {
   try {
-    // Provo me fetch direkt
     const response = await fetch(url, {
       method: 'GET',
       headers: {
         'Accept': 'text/plain, */*'
       }
     });
-    
+
     if (!response.ok) {
       throw new Error(`HTTP error! status: ${response.status}`);
     }
-    
+
     const data = await response.text();
     return data;
   } catch (error) {
@@ -280,9 +262,6 @@ export const fetchM3UFromUrl = async (url) => {
   }
 };
 
-/**
- * Ruaj M3U lokal
- */
 export const saveM3ULocally = async (content, filename = 'playlist.m3u') => {
   try {
     const blob = new Blob([content], { type: 'text/plain' });
@@ -299,11 +278,6 @@ export const saveM3ULocally = async (content, filename = 'playlist.m3u') => {
   }
 };
 
-// ================ UTILITY FUNCTIONS ================
-
-/**
- * Grupo kanalet sipas kategorive
- */
 export const groupChannelsByCategory = (channels) => {
   return channels.reduce((groups, channel) => {
     const category = channel.groupTitle || 'Pa Kategori';
@@ -315,28 +289,21 @@ export const groupChannelsByCategory = (channels) => {
   }, {});
 };
 
-/**
- * Kërko kanale
- */
 export const searchChannels = (channels, query) => {
   if (!query) return channels;
-  
+
   const lowerQuery = query.toLowerCase();
-  return channels.filter(channel => 
+  return channels.filter(channel =>
     channel.name?.toLowerCase().includes(lowerQuery) ||
     channel.tvgName?.toLowerCase().includes(lowerQuery) ||
     channel.groupTitle?.toLowerCase().includes(lowerQuery)
   );
 };
 
-/**
- * Testo URL e kanalit
- */
 export const testChannelUrl = async (url) => {
   try {
-    const response = await fetch(url, { 
-      method: 'HEAD',
-      timeout: 5000 
+    const response = await fetch(url, {
+      method: 'HEAD'
     });
     return response.ok;
   } catch {
@@ -344,7 +311,6 @@ export const testChannelUrl = async (url) => {
   }
 };
 
-// ================ DEFAULT EXPORT ================
 export default {
   verifyXtreamCredentials,
   xtreamLogin,
