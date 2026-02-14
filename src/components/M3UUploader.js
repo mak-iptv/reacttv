@@ -9,6 +9,8 @@ const M3UUploader = ({ onLoad, onClose, isLoading, theme = 'dark' }) => {
   const [success, setSuccess] = useState('');
   const [isFetching, setIsFetching] = useState(false);
   const [downloadProgress, setDownloadProgress] = useState(0);
+  const [usingProxy, setUsingProxy] = useState(false);
+  const [retryCount, setRetryCount] = useState(0);
   const [recentUrls, setRecentUrls] = useState(() => {
     try {
       return JSON.parse(localStorage.getItem('recentM3UUrls') || '[]');
@@ -18,8 +20,18 @@ const M3UUploader = ({ onLoad, onClose, isLoading, theme = 'dark' }) => {
   });
   
   const fileInputRef = useRef(null);
+  const MAX_RETRIES = 3;
 
-  // Funksioni për Parse të M3U (i optimizuar)
+  // Lista e CORS proxy-ve
+  const CORS_PROXIES = [
+    { name: 'cors-anywhere', url: 'https://cors-anywhere.herokuapp.com/' },
+    { name: 'allorigins', url: 'https://api.allorigins.win/raw?url=' },
+    { name: 'corsproxy', url: 'https://corsproxy.io/?' },
+    { name: 'thingproxy', url: 'https://thingproxy.freeboard.io/fetch/' },
+    { name: 'cors-proxy', url: 'https://cors-proxy.htmldriven.com/?url=' }
+  ];
+
+  // Funksioni për Parse të M3U
   const parseM3U = useCallback((content, source = 'file') => {
     if (!content || !content.includes('#EXTM3U')) {
       return [];
@@ -37,10 +49,8 @@ const M3UUploader = ({ onLoad, onClose, isLoading, theme = 'dark' }) => {
       
       if (line.startsWith('#EXTINF:')) {
         try {
-          // Parse EXTINF me regex më të saktë
           const extinfMatch = line.match(/#EXTINF:(-?\d+)(?:\s+(.*?))?,(.*)/);
           if (extinfMatch) {
-            // Ekstrakto atributet
             const tvgLogo = line.match(/tvg-logo="([^"]*)"/i)?.[1] || '';
             const tvgId = line.match(/tvg-id="([^"]*)"/i)?.[1] || '';
             const tvgName = line.match(/tvg-name="([^"]*)"/i)?.[1] || '';
@@ -63,7 +73,6 @@ const M3UUploader = ({ onLoad, onClose, isLoading, theme = 'dark' }) => {
           console.warn('Gabim në parse EXTINF:', err);
         }
       } else if (line.startsWith('#EXTGRP:')) {
-        // Grupi alternativ
         if (currentChannel) {
           const groupName = line.substring(8).trim();
           if (groupName && !currentChannel.group) {
@@ -71,20 +80,15 @@ const M3UUploader = ({ onLoad, onClose, isLoading, theme = 'dark' }) => {
           }
         }
       } else if (!line.startsWith('#') && currentChannel) {
-        // URL e kanalit
         if (line.startsWith('http')) {
           currentChannel.url = line;
           currentChannel.stream_url = line;
-          
-          // Krijim i ID-së unike bazuar në URL
           currentChannel.id = currentChannel.id || `m3u_${btoa(line).substr(0, 20)}`;
-          
           channels.push({ ...currentChannel });
         }
         currentChannel = null;
       }
       
-      // Siguri kundër file-ve shumë të mëdhenj
       if (lineCount > 100000) {
         console.warn('File shumë i madh, u ndërpre në 100000 rreshta');
         break;
@@ -94,21 +98,61 @@ const M3UUploader = ({ onLoad, onClose, isLoading, theme = 'dark' }) => {
     return channels;
   }, []);
 
-  // Funksioni për validimin e URL-ve M3U
-  const isValidM3UUrl = (url) => {
+  // Funksioni për validimin e URL-ve
+  const isValidUrl = (urlString) => {
     try {
-      const urlObj = new URL(url);
+      const urlObj = new URL(urlString);
       return urlObj.protocol === 'http:' || urlObj.protocol === 'https:';
     } catch {
       return false;
     }
   };
 
-  // Ruaj URL-të e fundit në localStorage
+  // Ruaj URL-të e fundit
   const saveRecentUrl = (url) => {
     const updated = [url, ...recentUrls.filter(u => u !== url)].slice(0, 5);
     setRecentUrls(updated);
     localStorage.setItem('recentM3UUrls', JSON.stringify(updated));
+  };
+
+  // Konverto http në https
+  const toHttps = (urlString) => {
+    return urlString.replace(/^http:/i, 'https:');
+  };
+
+  // Apliko CORS proxy
+  const applyProxy = (urlString, proxyIndex = 0) => {
+    const proxy = CORS_PROXIES[proxyIndex];
+    if (!proxy) return urlString;
+    
+    // Disa proxy kanë nevojë për encoding të ndryshëm
+    if (proxy.name === 'allorigins') {
+      return `${proxy.url}${encodeURIComponent(urlString)}`;
+    } else if (proxy.name === 'corsproxy') {
+      return `${proxy.url}${encodeURIComponent(urlString)}`;
+    } else {
+      return `${proxy.url}${urlString}`;
+    }
+  };
+
+  // Detekto llojin e gabimit
+  const getErrorMessage = (error, attemptedUrl) => {
+    if (error.name === 'AbortError') {
+      return 'Kërkesa u ndërpre (timeout). Serveri është shumë i ngadaltë.';
+    }
+    
+    if (error.message.includes('Failed to fetch') || error.message.includes('NetworkError')) {
+      if (attemptedUrl.startsWith('http:')) {
+        return 'Mixed Content: URL duhet të jetë HTTPS. Duke provuar zgjidhje alternative...';
+      }
+      return 'Problem me rrjetin ose CORS. Provo metodat e tjera.';
+    }
+    
+    if (error.message.includes('CORS')) {
+      return 'CORS error: Serveri nuk lejon qasje direkte.';
+    }
+    
+    return error.message || 'Gabim i panjohur. Provo të shkarkosh file.';
   };
 
   // 1. Ngarkimi nga File
@@ -116,10 +160,14 @@ const M3UUploader = ({ onLoad, onClose, isLoading, theme = 'dark' }) => {
     const file = event.target.files[0];
     if (!file) return;
     
-    // Validim i tipit të file
     const fileExt = file.name.split('.').pop().toLowerCase();
     if (!['m3u', 'm3u8', 'txt'].includes(fileExt)) {
       setError('Formati i lejuar: .m3u, .m3u8, .txt');
+      return;
+    }
+
+    if (file.size > 100 * 1024 * 1024) { // 100MB max
+      setError('File shumë i madh. Maksimumi 100MB.');
       return;
     }
 
@@ -142,7 +190,6 @@ const M3UUploader = ({ onLoad, onClose, isLoading, theme = 'dark' }) => {
           });
           setSuccess(`✅ U ngarkuan ${channels.length} kanale nga "${file.name}".`);
           
-          // Reset file input
           if (fileInputRef.current) {
             fileInputRef.current.value = '';
           }
@@ -162,7 +209,7 @@ const M3UUploader = ({ onLoad, onClose, isLoading, theme = 'dark' }) => {
     reader.readAsText(file);
   }, [parseM3U, onLoad]);
 
-  // 2. Ngarkimi DIREKT nga URL me progress
+  // 2. Ngarkimi nga URL me multiple fallback methods
   const handleUrlFetch = async (e) => {
     e.preventDefault();
     
@@ -171,7 +218,7 @@ const M3UUploader = ({ onLoad, onClose, isLoading, theme = 'dark' }) => {
       return;
     }
     
-    if (!isValidM3UUrl(url)) {
+    if (!isValidUrl(url)) {
       setError('URL nuk është e vlefshme');
       return;
     }
@@ -180,96 +227,172 @@ const M3UUploader = ({ onLoad, onClose, isLoading, theme = 'dark' }) => {
     setError('');
     setSuccess('');
     setDownloadProgress(0);
+    setUsingProxy(false);
+    setRetryCount(0);
+
+    let content = null;
+    let channels = [];
+    let lastError = null;
 
     try {
-      // Përdorim AbortController për timeout
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 sekonda timeout
+      // Metoda 1: Provo HTTPS direkt (konverto http->https)
+      if (url.startsWith('http:')) {
+        const httpsUrl = toHttps(url);
+        setDownloadProgress(10);
+        
+        try {
+          console.log('Metoda 1: Duke provuar HTTPS:', httpsUrl);
+          const response = await fetch(httpsUrl, {
+            signal: AbortSignal.timeout(10000),
+            headers: {
+              'Accept': 'text/plain,application/x-mpegURL,application/vnd.apple.mpegurl',
+              'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+            }
+          });
+          
+          if (response.ok) {
+            content = await response.text();
+            channels = parseM3U(content, 'url');
+            
+            if (channels.length > 0) {
+              console.log('✅ Sukses me HTTPS!');
+            }
+          }
+        } catch (err) {
+          console.log('❌ HTTPS dështoi:', err.message);
+          lastError = err;
+        }
+      }
 
-      const response = await fetch(url, {
-        signal: controller.signal,
-        headers: {
-          'Accept': 'text/plain,application/x-mpegURL,application/vnd.apple.mpegurl',
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-        }
-      });
-      
-      clearTimeout(timeoutId);
-      
-      if (!response.ok) {
-        throw new Error(`Serveri u përgjigj me status: ${response.status}`);
-      }
-      
-      // Get content length për progress
-      const contentLength = response.headers.get('content-length');
-      const reader = response.body.getReader();
-      let receivedLength = 0;
-      let chunks = [];
-      
-      while(true) {
-        const {done, value} = await reader.read();
+      // Metoda 2: Provo HTTP direkt (nëse nuk kemi sukses me HTTPS)
+      if (channels.length === 0) {
+        setDownloadProgress(30);
         
-        if (done) {
-          break;
-        }
-        
-        chunks.push(value);
-        receivedLength += value.length;
-        
-        if (contentLength) {
-          setDownloadProgress(Math.round((receivedLength / parseInt(contentLength)) * 100));
+        try {
+          console.log('Metoda 2: Duke provuar HTTP direkt:', url);
+          const response = await fetch(url, {
+            signal: AbortSignal.timeout(10000),
+            headers: {
+              'Accept': 'text/plain,application/x-mpegURL,application/vnd.apple.mpegurl',
+              'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+            },
+            mode: 'cors',
+            credentials: 'omit'
+          });
+          
+          if (response.ok) {
+            content = await response.text();
+            channels = parseM3U(content, 'url');
+            
+            if (channels.length > 0) {
+              console.log('✅ Sukses me HTTP direkt!');
+            }
+          }
+        } catch (err) {
+          console.log('❌ HTTP direkt dështoi:', err.message);
+          lastError = err;
         }
       }
-      
-      // Kombino chunks
-      const chunksAll = new Uint8Array(receivedLength);
-      let position = 0;
-      for(let chunk of chunks) {
-        chunksAll.set(chunk, position);
-        position += chunk.length;
+
+      // Metoda 3-7: Provo të gjithë CORS proxy-të
+      let proxyIndex = 0;
+      while (channels.length === 0 && proxyIndex < CORS_PROXIES.length) {
+        setDownloadProgress(50 + (proxyIndex * 10));
+        setUsingProxy(true);
+        
+        try {
+          const proxyUrl = applyProxy(url, proxyIndex);
+          console.log(`Metoda ${proxyIndex + 3}: Duke provuar ${CORS_PROXIES[proxyIndex].name}:`, proxyUrl);
+          
+          const response = await fetch(proxyUrl, {
+            signal: AbortSignal.timeout(15000),
+            headers: {
+              'Accept': 'text/plain,application/x-mpegURL,application/vnd.apple.mpegurl',
+              'X-Requested-With': 'XMLHttpRequest'
+            }
+          });
+          
+          if (response.ok) {
+            let proxyContent = await response.text();
+            
+            // Disa proxy kthejnë JSON
+            if (proxyContent.startsWith('{') && proxyContent.includes('contents')) {
+              try {
+                const jsonData = JSON.parse(proxyContent);
+                proxyContent = jsonData.contents || jsonData.body || '';
+              } catch (e) {
+                // Ignore
+              }
+            }
+            
+            channels = parseM3U(proxyContent, 'url');
+            
+            if (channels.length > 0) {
+              console.log(`✅ Sukses me proxy ${CORS_PROXIES[proxyIndex].name}!`);
+              break;
+            }
+          }
+        } catch (err) {
+          console.log(`❌ Proxy ${CORS_PROXIES[proxyIndex].name} dështoi:`, err.message);
+          lastError = err;
+        }
+        
+        proxyIndex++;
       }
-      
-      // Decode si tekst
-      const content = new TextDecoder("utf-8").decode(chunksAll);
-      
-      // Parse channels
-      const channels = parseM3U(content, 'url');
-      
+
+      // Nëse kemi kanale, sukses
       if (channels.length > 0) {
-        // Ruaj URL-në e suksesshme
         saveRecentUrl(url);
-        
         onLoad({ 
           type: 'url', 
           channels, 
           url,
-          count: channels.length
+          count: channels.length,
+          usedProxy: usingProxy
         });
         
-        setSuccess(`✅ Sukses! U ngarkuan ${channels.length} kanale nga URL.`);
-        setUrl(''); // Pastro URL pas suksesit
+        setSuccess(`✅ Sukses! U ngarkuan ${channels.length} kanale.`);
+        setUrl('');
       } else {
-        setError('URL nuk përmban një playlist të vlefshme M3U.');
+        // Asnjë metodë nuk funksionoi
+        const errorMsg = getErrorMessage(lastError, url);
+        setError(errorMsg);
+        
+        // Propozo shkarkim manual
+        if (errorMsg.includes('CORS') || errorMsg.includes('Mixed Content')) {
+          setError(errorMsg + ' Kliko butonin "Shkarko" më poshtë.');
+        }
       }
-    } catch (err) {
-      console.error('Fetch error:', err);
       
-      if (err.name === 'AbortError') {
-        setError('Kërkesa u ndërpre (timeout). URL mund të jetë shumë e ngadaltë.');
-      } else if (err.message.includes('Failed to fetch') || err.message.includes('NetworkError')) {
-        setError('CORS Error: Ky server nuk lejon lexim direkt. Përdor metodën "Shkarko dhe Ngarko".');
-      } else {
-        setError(`Gabim: ${err.message}`);
-      }
+    } catch (err) {
+      console.error('Gabim i papritur:', err);
+      setError('Gabim i papritur. Provo të shkarkosh file.');
     } finally {
       setIsFetching(false);
-      setDownloadProgress(0);
+      setDownloadProgress(100);
+      setTimeout(() => setDownloadProgress(0), 1000);
     }
+  };
+
+  // Funksioni për shkarkim manual
+  const handleManualDownload = () => {
+    if (!url) return;
+    
+    // Hap URL në tab të ri për shkarkim
+    window.open(url, '_blank');
+    
+    // Shfaq udhëzime
+    setSuccess(`
+      📥 URL u hap në tab të ri. 
+      Shkarko file dhe pastaj përdor opsionin "Nga File" për ta ngarkuar.
+    `);
   };
 
   // Përzgjedh URL nga lista e fundit
   const handleSelectRecentUrl = (recentUrl) => {
     setUrl(recentUrl);
+    setError('');
+    setSuccess('');
   };
 
   // Reset form
@@ -277,6 +400,8 @@ const M3UUploader = ({ onLoad, onClose, isLoading, theme = 'dark' }) => {
     setError('');
     setSuccess('');
     setUrl('');
+    setDownloadProgress(0);
+    setUsingProxy(false);
     if (fileInputRef.current) {
       fileInputRef.current.value = '';
     }
@@ -340,10 +465,17 @@ const M3UUploader = ({ onLoad, onClose, isLoading, theme = 'dark' }) => {
                   value={url}
                   onChange={(e) => setUrl(e.target.value)}
                   disabled={isFetching}
-                  className="m3u-url-input"
+                  className={`m3u-url-input ${usingProxy ? 'using-proxy' : ''}`}
                 />
                 
-                {downloadProgress > 0 && (
+                {usingProxy && (
+                  <div className="m3u-proxy-indicator">
+                    <span className="m3u-proxy-icon">🔄</span>
+                    Duke përdorur CORS proxy...
+                  </div>
+                )}
+                
+                {downloadProgress > 0 && downloadProgress < 100 && (
                   <div className="m3u-progress-bar">
                     <div 
                       className="m3u-progress-fill" 
@@ -363,7 +495,7 @@ const M3UUploader = ({ onLoad, onClose, isLoading, theme = 'dark' }) => {
                   {isFetching ? (
                     <>
                       <span className="m3u-spinner"></span>
-                      Duke u lidhur...
+                      Duke provuar metoda...
                     </>
                   ) : 'Ngarko Direkt'}
                 </button>
@@ -371,10 +503,10 @@ const M3UUploader = ({ onLoad, onClose, isLoading, theme = 'dark' }) => {
                 <button 
                   type="button" 
                   className="m3u-download-alt-btn"
-                  onClick={() => window.open(url, '_blank')}
+                  onClick={handleManualDownload}
                   disabled={!url || isFetching}
                 >
-                  ⬇️ Shkarko
+                  ⬇️ Shkarko Manualisht
                 </button>
               </div>
               
@@ -389,6 +521,7 @@ const M3UUploader = ({ onLoad, onClose, isLoading, theme = 'dark' }) => {
                         type="button"
                         className="m3u-recent-url-btn"
                         onClick={() => handleSelectRecentUrl(recentUrl)}
+                        title={recentUrl}
                       >
                         🔗 {recentUrl.substring(0, 40)}...
                       </button>
@@ -397,31 +530,85 @@ const M3UUploader = ({ onLoad, onClose, isLoading, theme = 'dark' }) => {
                 </div>
               )}
               
+              {/* Udhëzime për Mixed Content */}
               <div className="m3u-url-note">
-                <p>💡 Nëse URL nuk funksionon direkt, shkarko file dhe ngarko manualisht.</p>
+                <p><strong>ℹ️ Probleme me Mixed Content?</strong></p>
+                <p>Nëse URL fillon me <code>http://</code> dhe nuk funksionon:</p>
+                <ul>
+                  <li>Provo të ndryshosh manualisht në <code>https://</code></li>
+                  <li>Përdor butonin <strong>"Shkarko Manualisht"</strong></li>
+                  <li>Shkarko file dhe përdor opsionin "Nga File"</li>
+                </ul>
               </div>
             </form>
           )}
 
+          {/* Error Message */}
           {error && (
             <div className="m3u-error-msg">
               <span className="m3u-error-icon">⚠️</span>
-              {error}
+              <div className="m3u-error-content">
+                <p><strong>{error}</strong></p>
+                
+                {error.includes('Mixed Content') && (
+                  <div className="m3u-error-solution">
+                    <p>Zgjidhje të shpejta:</p>
+                    <div className="m3u-solution-buttons">
+                      <button 
+                        className="m3u-solution-btn"
+                        onClick={() => {
+                          const httpsUrl = toHttps(url);
+                          setUrl(httpsUrl);
+                          handleUrlFetch(new Event('submit'));
+                        }}
+                      >
+                        🔄 Provo me HTTPS
+                      </button>
+                      <button 
+                        className="m3u-solution-btn"
+                        onClick={handleManualDownload}
+                      >
+                        📥 Shkarko
+                      </button>
+                    </div>
+                  </div>
+                )}
+                
+                {error.includes('CORS') && (
+                  <div className="m3u-error-solution">
+                    <p>Duke përdorur CORS proxy automatikisht...</p>
+                  </div>
+                )}
+              </div>
             </div>
           )}
           
+          {/* Success Message */}
           {success && (
             <div className="m3u-success-msg">
               <span className="m3u-success-icon">✅</span>
-              {success}
+              <div>
+                <p><strong>{success}</strong></p>
+                {usingProxy && (
+                  <p className="m3u-success-note">
+                    <small>⚠️ U përdor CORS proxy. Performanca mund të jetë më e ngadaltë.</small>
+                  </p>
+                )}
+              </div>
             </div>
           )}
         </div>
 
+        {/* Loading Overlay */}
         {(isLoading || isFetching) && (
           <div className="m3u-modal-loading">
             <div className="m3u-spinner-large"></div>
-            <p>Duke procesuar playlist...</p>
+            <p>
+              {isFetching ? 'Duke provuar metoda të ndryshme...' : 'Duke procesuar playlist...'}
+            </p>
+            {usingProxy && (
+              <p className="m3u-loading-note">Përdor CORS proxy, mund të zgjasë pak...</p>
+            )}
           </div>
         )}
       </div>
