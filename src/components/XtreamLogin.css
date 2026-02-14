@@ -410,3 +410,223 @@
     flex-direction: column-reverse;
   }
 }
+/* XtreamLogin.css */
+.xtream-modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: rgba(0, 0, 0, 0.7);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  animation: fadeIn 0.3s ease;
+}
+
+.xtream-modal {
+  background: var(--modal-bg, #1a1a1a);
+  border-radius: 12px;
+  width: 90%;
+  max-width: 450px;
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+  animation: slideUp 0.3s ease;
+  border: 1px solid var(--border-color, #333);
+}
+
+.theme-light {
+  --modal-bg: #ffffff;
+  --text-color: #333333;
+  --border-color: #e0e0e0;
+  --input-bg: #f5f5f5;
+  --primary-color: #2196f3;
+  --secondary-color: #f44336;
+}
+
+.theme-dark {
+  --modal-bg: #1a1a1a;
+  --text-color: #ffffff;
+  --border-color: #333333;
+  --input-bg: #2a2a2a;
+  --primary-color: #4CAF50;
+  --secondary-color: #f44336;
+}
+
+.xtream-modal-header {
+  padding: 20px;
+  border-bottom: 1px solid var(--border-color);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.xtream-modal-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.xtream-icon {
+  font-size: 24px;
+}
+
+.xtream-modal-title h2 {
+  margin: 0;
+  font-size: 20px;
+  color: var(--text-color);
+}
+
+.xtream-close-btn {
+  background: none;
+  border: none;
+  font-size: 28px;
+  cursor: pointer;
+  color: var(--text-color);
+  padding: 0;
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  transition: all 0.2s ease;
+}
+
+.xtream-close-btn:hover {
+  background-color: var(--border-color);
+}
+
+.xtream-modal-body {
+  padding: 20px;
+}
+
+.xtream-form-group {
+  margin-bottom: 20px;
+}
+
+.xtream-form-group label {
+  display: block;
+  margin-bottom: 8px;
+  color: var(--text-color);
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.xtream-form-group input {
+  width: 100%;
+  padding: 10px 12px;
+  background-color: var(--input-bg);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  color: var(--text-color);
+  font-size: 14px;
+  transition: all 0.2s ease;
+}
+
+.xtream-form-group input:focus {
+  outline: none;
+  border-color: var(--primary-color);
+  box-shadow: 0 0 0 2px rgba(76, 175, 80, 0.2);
+}
+
+.xtream-form-group input:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.password-input-wrapper {
+  position: relative;
+}
+
+.toggle-password {
+  position: absolute;
+  right: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 18px;
+  padding: 0;
+  color: var(--text-color);
+}
+
+.xtream-checkbox-group {
+  margin-bottom: 20px;
+}
+
+.xtream-checkbox-group label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-color);
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.xtream-checkbox-group input[type="checkbox"] {
+  width: auto;
+  cursor: pointer;
+}
+
+.xtream-form-actions {
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+  margin-top: 20px;
+}
+
+.xtream-btn-primary,
+.xtream-btn-secondary {
+  padding: 10px 20px;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  border: none;
+}
+
+.xtream-btn-primary {
+  background-color: var(--primary-color);
+  color: white;
+}
+
+.xtream-btn-primary:hover:not(:disabled) {
+  filter: brightness(1.1);
+  transform: translateY(-1px);
+}
+
+.xtream-btn-secondary {
+  background-color: transparent;
+  color: var(--text-color);
+  border: 1px solid var(--border-color);
+}
+
+.xtream-btn-secondary:hover:not(:disabled) {
+  background-color: var(--border-color);
+}
+
+.xtream-btn-primary:disabled,
+.xtream-btn-secondary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes slideUp {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
