@@ -191,6 +191,13 @@ function App() {
     clearMessages();
     
     try {
+      // Validim URL
+      try {
+        new URL(credentials.server);
+      } catch (urlError) {
+        throw new Error('URL e pavlefshme');
+      }
+
       const login = await xtreamLogin(credentials.server, credentials.username, credentials.password);
       
       if (!login.success) {
@@ -259,7 +266,7 @@ function App() {
       
     } catch (err) {
       console.error('❌ Login error:', err);
-      handleError(err, 'Nuk u lidh me serverin: ' + err.message);
+      handleError(err, err.message || 'Nuk u lidh me serverin');
     } finally {
       setLoading('general', false);
     }
@@ -333,6 +340,7 @@ function App() {
     setSelectedItem(null);
     setSearchQuery("");
     clearMessages();
+    setShowM3UModal(true);
   }, [clearData, clearMessages]);
 
   // ================ TOGGLE SIDEBAR ================
@@ -391,14 +399,13 @@ function App() {
     return items.filter(item => {
       if (!item) return false;
       
-      // Kategoritë mund të jenë në fusha të ndryshme
       const itemCategory = 
-        item.group_title ||        // Xtream
-        item.group ||             // M3U
-        item.category_name ||     // Xtream categories
-        item.category ||          // Generic
-        item.tvg_group ||        // M3U tvg-group
-        item.genre ||            // Some formats
+        item.group_title ||        
+        item.group ||             
+        item.category_name ||     
+        item.category ||          
+        item.tvg_group ||        
+        item.genre ||            
         'Pa Kategori';
       
       return itemCategory === category;
@@ -407,13 +414,9 @@ function App() {
 
   // ================ COMPUTED PROPERTIES ================
   const currentCategories = useMemo(() => {
-    // Krijo Set për kategori unike
     const categoriesSet = new Set();
-    
-    // Shto "Të gjitha" si kategori default
     categoriesSet.add(APP_CONSTANTS.DEFAULT_CATEGORY);
     
-    // Merr item-at e duhur sipas tab-it aktiv
     let items = [];
     if (activeTab === TABS.LIVE) items = safeChannels;
     else if (activeTab === TABS.MOVIES) items = safeMovies;
@@ -423,13 +426,9 @@ function App() {
       return Array.from(categoriesSet);
     }
     
-    console.log(`📁 ${activeTab}: ${items.length} items`);
-    
-    // Mblidh të gjitha kategoritë nga item-at
     items.forEach(item => {
       if (!item) return;
       
-      // Kontrollo të gjitha fushat e mundshme për kategorinë
       let catName = 
         item.group_title || 
         item.group || 
@@ -438,22 +437,17 @@ function App() {
         item.tvg_group || 
         item.genre;
       
-      // Nëse ka kategori dhe nuk është bosh, shtoje
       if (catName && typeof catName === 'string' && catName.trim() !== '') {
         categoriesSet.add(catName.trim());
       }
     });
     
-    // Konverto Set në array dhe rendit
     const sortedCategories = Array.from(categoriesSet).sort((a, b) => {
-      // "Të gjitha" gjithmonë e para
       if (a === APP_CONSTANTS.DEFAULT_CATEGORY) return -1;
       if (b === APP_CONSTANTS.DEFAULT_CATEGORY) return 1;
-      // Pjesa tjetër sipas alfabetit
       return a.localeCompare(b);
     });
     
-    console.log('📁 Categories found:', sortedCategories);
     return sortedCategories;
   }, [activeTab, safeChannels, safeMovies, safeSeries]);
 
@@ -537,10 +531,7 @@ function App() {
       }
     }
     
-    handleError(
-      error instanceof Error ? error : new Error(errorMessage), 
-      errorMessage
-    );
+    handleError(errorMessage);
   }, [handleError]);
 
   // ================ RENDER ================
