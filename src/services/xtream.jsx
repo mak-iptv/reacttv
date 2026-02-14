@@ -6,7 +6,7 @@ import { STREAM_TYPES } from '../constants/iptv';
 const callXtreamApi = async (server, username, password, extraParams = {}) => {
   try {
     // Ndrysho nga '/api/xtream' në '/api/xtream-proxy'
-    const response = await axios.get('/api/xtream-proxy', {
+    const response = await axios.get('/api/xtream', {
       params: {
         server,
         username,
