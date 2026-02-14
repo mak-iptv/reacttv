@@ -508,6 +508,121 @@
   .m3u-upload-text {
     font-size: 16px;
   }
+  /* Shto në M3UUploader.css */
+
+.m3u-url-input.using-proxy {
+  border-color: #ffc107;
+  background: rgba(255, 193, 7, 0.1);
+}
+
+.m3u-proxy-indicator {
+  font-size: 13px;
+  color: #ffc107;
+  margin-top: 4px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  animation: pulse 1.5s infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.6; }
+}
+
+.m3u-error-content {
+  flex: 1;
+}
+
+.m3u-error-solution {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(244, 67, 54, 0.3);
+}
+
+.m3u-error-solution p {
+  margin: 0 0 8px 0;
+  font-weight: 500;
+}
+
+.m3u-solution-buttons {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.m3u-solution-btn {
+  padding: 8px 16px;
+  border: none;
+  border-radius: 20px;
+  background: rgba(255, 255, 255, 0.2);
+  color: inherit;
+  font-size: 13px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.m3u-solution-btn:hover {
+  background: rgba(255, 255, 255, 0.3);
+  transform: translateY(-1px);
+}
+
+.m3u-success-note {
+  margin: 8px 0 0 0;
+  color: #ffc107;
+}
+
+.m3u-loading-note {
+  font-size: 13px;
+  margin-top: 8px;
+  opacity: 0.8;
+  color: #ffc107;
+}
+
+.m3u-url-note code {
+  background: rgba(0, 0, 0, 0.1);
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-family: monospace;
+}
+
+.m3u-url-note ul {
+  margin: 8px 0 0 0;
+  padding-left: 20px;
+  font-size: 13px;
+}
+
+.m3u-url-note li {
+  margin: 4px 0;
+}
+
+/* Përmirëso progress bar */
+.m3u-progress-bar {
+  height: 4px;
+  background: var(--border-color);
+  border-radius: 2px;
+  overflow: hidden;
+  position: relative;
+  margin-top: 8px;
+}
+
+.m3u-progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #4a90e2, #67b26f, #ffc107);
+  transition: width 0.3s ease;
+  border-radius: 2px;
+}
+
+.m3u-progress-bar span {
+  position: absolute;
+  right: 0;
+  top: -20px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
   
   .m3u-upload-hint {
     font-size: 12px;
