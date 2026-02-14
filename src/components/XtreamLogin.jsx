@@ -9,50 +9,45 @@ const XtreamLogin = ({ onLogin, onClose, isLoading = false, theme = 'dark' }) =>
   const [showPassword, setShowPassword] = useState(false);
   const [saveCredentials, setSaveCredentials] = useState(true);
   const [error, setError] = useState('');
+  const [isLoggingIn, setIsLoggingIn] = useState(false);
 
   const validateServerUrl = (url) => {
     try {
-      // Shto http:// nëse nuk ka
-      if (!url.startsWith('http://') && !url.startsWith('https://')) {
-        url = 'http://' + url;
+      let formattedUrl = url.trim();
+      if (!formattedUrl.startsWith('http://') && !formattedUrl.startsWith('https://')) {
+        formattedUrl = 'http://' + formattedUrl;
       }
-      new URL(url);
-      return { valid: true, url };
+      new URL(formattedUrl);
+      return { valid: true, url: formattedUrl };
     } catch {
       return { valid: false, url };
     }
   };
 
   const validateForm = () => {
-    // Reset error
     setError('');
 
-    // Check server
     if (!server.trim()) {
       setError('Ju lutem vendosni server URL');
       return false;
     }
 
-    // Validate server URL format
     const { valid, url } = validateServerUrl(server);
     if (!valid) {
       setError('Server URL nuk është valid. P.sh: http://example.com:8080');
       return false;
     }
 
-    // Check username
     if (!username.trim()) {
       setError('Ju lutem vendosni username');
       return false;
     }
 
-    // Check password
     if (!password.trim()) {
       setError('Ju lutem vendosni password');
       return false;
     }
 
-    // Update server with corrected URL
     if (url !== server) {
       setServer(url);
     }
@@ -67,17 +62,17 @@ const XtreamLogin = ({ onLogin, onClose, isLoading = false, theme = 'dark' }) =>
       return;
     }
 
-    // Log për debugging
+    setIsLoggingIn(true);
+    setError('');
+
     console.log('🔐 Login attempt:', { 
-      server, 
+      server: server.trim(), 
       username: username.trim(),
-      hasPassword: !!password 
     });
 
     try {
-      // Përdor proxy-in e Vercel
-      const API_URL = process.env.NEXT_PUBLIC_API_URL || '';
-      const response = await fetch(`${API_URL}/api/xtream-proxy`, {
+      // Përdor relative URL për Vercel
+      const response = await fetch('/api/xtream-proxy', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -86,54 +81,104 @@ const XtreamLogin = ({ onLogin, onClose, isLoading = false, theme = 'dark' }) =>
           server: server.trim(), 
           username: username.trim(), 
           password: password.trim(),
-          saveCredentials 
         }),
       });
 
       console.log('📡 Response status:', response.status);
-
-      // Lexo response-in si text fillimisht
+      
+      // Lexo response si text fillimisht
       const responseText = await response.text();
-      console.log('📦 Raw response:', responseText);
+      console.log('📦 Response length:', responseText.length);
+      console.log('📦 Response preview:', responseText.substring(0, 200));
 
-      // Parse JSON nëse është e mundur
+      // Kontrollo nëse përgjigja është bosh
+      if (!responseText || responseText.trim().length === 0) {
+        throw new Error('Serveri nuk po kthen përgjigje');
+      }
+
+      // Provo të parse JSON
       let data;
       try {
         data = JSON.parse(responseText);
       } catch (parseError) {
-        console.error('❌ Failed to parse response:', parseError);
-        throw new Error('Përgjigja nga serveri nuk është e vlefshme');
+        console.error('❌ JSON parse error:', parseError);
+        
+        // Nëse nuk është JSON, trego përgjigjen e parë
+        setError(
+          <div className="error-detailed">
+            <p><strong>Përgjigja nga serveri nuk është JSON:</strong></p>
+            <pre className="error-preview">
+              {responseText.substring(0, 300)}
+            </pre>
+            <p className="error-hint">
+              Kjo mund të ndodhë nëse:
+              <br/>• URL e serverit është e gabuar
+              <br/>• Serveri nuk mbështet Xtream Codes API
+              <br/>• Serveri kërkon autentikim shtesë
+            </p>
+          </div>
+        );
+        setIsLoggingIn(false);
+        return;
       }
 
-      // Kontrollo nëse ka error nga serveri
-      if (!response.ok) {
-        throw new Error(data.error || data.message || 'Kredencialet e gabuara');
+      // Kontrollo nëse ka error nga proxy
+      if (data.error) {
+        throw new Error(data.error);
       }
 
-      // Verifiko nëse të dhënat janë të sakta
-      if (data.user_info || data.user || data.data) {
+      // Kontrollo nëse ka sukses
+      if (data.success || data.user_info || data.user || data.data) {
         console.log('✅ Login successful');
-        onLogin({ 
-          ...data, 
-          credentials: { server, username: username.trim() } 
-        });
+        
+        // Ruaj kredencialet nëse është zgjedhur
+        if (saveCredentials) {
+          try {
+            localStorage.setItem('xtream_credentials', JSON.stringify({
+              server: server.trim(),
+              username: username.trim(),
+              lastLogin: new Date().toISOString()
+            }));
+          } catch (storageError) {
+            console.warn('Could not save credentials:', storageError);
+          }
+        }
+        
+        // Thirr onLogin me të dhënat
+        onLogin(data);
+        onClose();
       } else {
-        console.error('❌ Invalid response structure:', data);
-        throw new Error('Kredencialet e gabuara');
+        console.error('❌ Invalid response:', data);
+        setError('Përgjigja nga serveri nuk është e vlefshme');
       }
 
     } catch (error) {
       console.error('❌ Login error:', error);
       setError(error.message || 'Lidhja dështoi. Kontrollo serverin dhe kredencialet.');
+    } finally {
+      setIsLoggingIn(false);
     }
   };
 
   const handleServerBlur = () => {
-    // Auto-format server URL kur humb fokus
     if (server && !server.startsWith('http://') && !server.startsWith('https://')) {
       setServer('http://' + server);
     }
   };
+
+  // Load saved credentials on mount
+  React.useEffect(() => {
+    try {
+      const saved = localStorage.getItem('xtream_credentials');
+      if (saved) {
+        const { server: savedServer, username: savedUsername } = JSON.parse(saved);
+        if (savedServer) setServer(savedServer);
+        if (savedUsername) setUsername(savedUsername);
+      }
+    } catch (error) {
+      console.warn('Could not load saved credentials:', error);
+    }
+  }, []);
 
   const isFormValid = server.trim() && username.trim() && password.trim();
 
@@ -149,7 +194,7 @@ const XtreamLogin = ({ onLogin, onClose, isLoading = false, theme = 'dark' }) =>
             className="xtream-close-btn" 
             onClick={onClose}
             aria-label="Close modal"
-            disabled={isLoading}
+            disabled={isLoggingIn || isLoading}
           >
             ×
           </button>
@@ -158,8 +203,10 @@ const XtreamLogin = ({ onLogin, onClose, isLoading = false, theme = 'dark' }) =>
         <div className="xtream-modal-body">
           {error && (
             <div className="xtream-error-message" role="alert">
-              <span className="error-icon">⚠️</span>
-              <span>{error}</span>
+              <div className="error-icon">⚠️</div>
+              <div className="error-content">
+                {typeof error === 'string' ? error : error}
+              </div>
               <button 
                 className="error-close" 
                 onClick={() => setError('')}
@@ -182,7 +229,7 @@ const XtreamLogin = ({ onLogin, onClose, isLoading = false, theme = 'dark' }) =>
                 onChange={(e) => setServer(e.target.value)}
                 onBlur={handleServerBlur}
                 placeholder="http://example.com:8080"
-                disabled={isLoading}
+                disabled={isLoggingIn || isLoading}
                 required
                 autoComplete="off"
                 spellCheck="false"
@@ -203,7 +250,7 @@ const XtreamLogin = ({ onLogin, onClose, isLoading = false, theme = 'dark' }) =>
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
                 placeholder="Username"
-                disabled={isLoading}
+                disabled={isLoggingIn || isLoading}
                 required
                 autoComplete="username"
                 spellCheck="false"
@@ -222,7 +269,7 @@ const XtreamLogin = ({ onLogin, onClose, isLoading = false, theme = 'dark' }) =>
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder="Password"
-                  disabled={isLoading}
+                  disabled={isLoggingIn || isLoading}
                   required
                   autoComplete="current-password"
                   className={error && !password ? 'error' : ''}
@@ -232,7 +279,7 @@ const XtreamLogin = ({ onLogin, onClose, isLoading = false, theme = 'dark' }) =>
                   className="toggle-password"
                   onClick={() => setShowPassword(!showPassword)}
                   aria-label={showPassword ? 'Hide password' : 'Show password'}
-                  disabled={isLoading}
+                  disabled={isLoggingIn || isLoading}
                 >
                   {showPassword ? '🙈' : '👁️'}
                 </button>
@@ -240,15 +287,14 @@ const XtreamLogin = ({ onLogin, onClose, isLoading = false, theme = 'dark' }) =>
             </div>
 
             <div className="xtream-checkbox-group">
-              <label htmlFor="save-credentials" className="checkbox-label">
+              <label className="checkbox-label">
                 <input
-                  id="save-credentials"
                   type="checkbox"
                   checked={saveCredentials}
                   onChange={(e) => setSaveCredentials(e.target.checked)}
-                  disabled={isLoading}
+                  disabled={isLoggingIn || isLoading}
                 />
-                <span className="checkbox-text">Ruaj të dhënat</span>
+                <span className="checkbox-text">Ruaj të dhënat (për herën tjetër)</span>
               </label>
             </div>
 
@@ -256,17 +302,17 @@ const XtreamLogin = ({ onLogin, onClose, isLoading = false, theme = 'dark' }) =>
               <button 
                 type="button" 
                 onClick={onClose} 
-                disabled={isLoading}
+                disabled={isLoggingIn || isLoading}
                 className="xtream-btn-secondary"
               >
                 Anulo
               </button>
               <button 
                 type="submit" 
-                disabled={!isFormValid || isLoading}
+                disabled={!isFormValid || isLoggingIn || isLoading}
                 className="xtream-btn-primary"
               >
-                {isLoading ? (
+                {isLoggingIn ? (
                   <>
                     <span className="spinner" aria-hidden="true"></span>
                     <span>Duke u lidhur...</span>
@@ -278,7 +324,7 @@ const XtreamLogin = ({ onLogin, onClose, isLoading = false, theme = 'dark' }) =>
             </div>
           </form>
 
-          {isLoading && (
+          {(isLoggingIn || isLoading) && (
             <div className="xtream-loading-overlay">
               <div className="xtream-loading-spinner"></div>
               <p>Duke u lidhur me serverin...</p>
@@ -290,7 +336,6 @@ const XtreamLogin = ({ onLogin, onClose, isLoading = false, theme = 'dark' }) =>
   );
 };
 
-// Default props
 XtreamLogin.defaultProps = {
   isLoading: false,
   theme: 'dark',
