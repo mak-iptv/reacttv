@@ -118,3 +118,60 @@ export async function OPTIONS() {
     },
   });
 }
+
+// pages/api/xtream-proxy.js ose app/api/xtream-proxy/route.js
+
+export default async function handler(req, res) {
+  // Shto CORS headers
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  
+  // Handle preflight requests
+  if (req.method === 'OPTIONS') {
+    return res.status(200).end();
+  }
+  
+  if (req.method !== 'POST') {
+    return res.status(405).json({ error: 'Method not allowed' });
+  }
+  
+  try {
+    const { server, username, password } = req.body;
+    
+    console.log('Connecting to:', server);
+    
+    // Përdor GET me query parameters (Xtream Codes shpesh përdor GET)
+    const apiUrl = `${server}/player_api.php?username=${username}&password=${password}`;
+    
+    const response = await fetch(apiUrl, {
+      method: 'GET',
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+        'Accept': 'application/json',
+      },
+    });
+    
+    const data = await response.text();
+    
+    // Provo të parse si JSON
+    try {
+      const jsonData = JSON.parse(data);
+      return res.status(200).json(jsonData);
+    } catch {
+      // Nëse nuk është JSON, ktheje si text
+      return res.status(200).json({ 
+        success: true, 
+        raw: data,
+        message: 'Non-JSON response received'
+      });
+    }
+    
+  } catch (error) {
+    console.error('Proxy error:', error);
+    return res.status(500).json({ 
+      error: error.message,
+      message: 'Failed to connect to server'
+    });
+  }
+}
