@@ -1,5 +1,7 @@
-// XtreamLogin.jsx
-import React, { useState } from 'react';
+// components/XtreamLogin.jsx
+'use client';
+
+import React, { useState, useEffect } from 'react';
 import './XtreamLogin.css';
 
 const XtreamLogin = ({ onLogin, onClose, isLoading = false, theme = 'dark' }) => {
@@ -10,6 +12,21 @@ const XtreamLogin = ({ onLogin, onClose, isLoading = false, theme = 'dark' }) =>
   const [saveCredentials, setSaveCredentials] = useState(true);
   const [error, setError] = useState('');
   const [isLoggingIn, setIsLoggingIn] = useState(false);
+  const [debugInfo, setDebugInfo] = useState(null);
+
+  // Load saved credentials
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem('xtream_credentials');
+      if (saved) {
+        const { server: savedServer, username: savedUsername } = JSON.parse(saved);
+        if (savedServer) setServer(savedServer);
+        if (savedUsername) setUsername(savedUsername);
+      }
+    } catch (error) {
+      console.warn('Could not load saved credentials:', error);
+    }
+  }, []);
 
   const validateServerUrl = (url) => {
     try {
@@ -26,6 +43,7 @@ const XtreamLogin = ({ onLogin, onClose, isLoading = false, theme = 'dark' }) =>
 
   const validateForm = () => {
     setError('');
+    setDebugInfo(null);
 
     if (!server.trim()) {
       setError('Ju lutem vendosni server URL');
@@ -64,6 +82,7 @@ const XtreamLogin = ({ onLogin, onClose, isLoading = false, theme = 'dark' }) =>
 
     setIsLoggingIn(true);
     setError('');
+    setDebugInfo(null);
 
     console.log('🔐 Login attempt:', { 
       server: server.trim(), 
@@ -71,7 +90,19 @@ const XtreamLogin = ({ onLogin, onClose, isLoading = false, theme = 'dark' }) =>
     });
 
     try {
-      // Përdor relative URL për Vercel
+      // Testo fillimisht nëse API route ekziston
+      const testResponse = await fetch('/api/xtream-proxy', {
+        method: 'GET',
+      });
+      
+      if (!testResponse.ok) {
+        throw new Error('API route nuk është aktive. Kontrollo deploy-in.');
+      }
+      
+      const testData = await testResponse.json();
+      console.log('✅ API test response:', testData);
+
+      // Dërgo kërkesën reale
       const response = await fetch('/api/xtream-proxy', {
         method: 'POST',
         headers: {
@@ -86,52 +117,33 @@ const XtreamLogin = ({ onLogin, onClose, isLoading = false, theme = 'dark' }) =>
 
       console.log('📡 Response status:', response.status);
       
-      // Lexo response si text fillimisht
       const responseText = await response.text();
       console.log('📦 Response length:', responseText.length);
       console.log('📦 Response preview:', responseText.substring(0, 200));
 
-      // Kontrollo nëse përgjigja është bosh
       if (!responseText || responseText.trim().length === 0) {
         throw new Error('Serveri nuk po kthen përgjigje');
       }
 
-      // Provo të parse JSON
       let data;
       try {
         data = JSON.parse(responseText);
       } catch (parseError) {
         console.error('❌ JSON parse error:', parseError);
-        
-        // Nëse nuk është JSON, trego përgjigjen e parë
-        setError(
-          <div className="error-detailed">
-            <p><strong>Përgjigja nga serveri nuk është JSON:</strong></p>
-            <pre className="error-preview">
-              {responseText.substring(0, 300)}
-            </pre>
-            <p className="error-hint">
-              Kjo mund të ndodhë nëse:
-              <br/>• URL e serverit është e gabuar
-              <br/>• Serveri nuk mbështet Xtream Codes API
-              <br/>• Serveri kërkon autentikim shtesë
-            </p>
-          </div>
-        );
-        setIsLoggingIn(false);
-        return;
+        setDebugInfo({
+          type: 'parse_error',
+          preview: responseText.substring(0, 500)
+        });
+        throw new Error('Përgjigja nga serveri nuk është JSON valide');
       }
 
-      // Kontrollo nëse ka error nga proxy
       if (data.error) {
         throw new Error(data.error);
       }
 
-      // Kontrollo nëse ka sukses
-      if (data.success || data.user_info || data.user || data.data) {
+      if (data.success || data.data || data.user_info || data.user) {
         console.log('✅ Login successful');
         
-        // Ruaj kredencialet nëse është zgjedhur
         if (saveCredentials) {
           try {
             localStorage.setItem('xtream_credentials', JSON.stringify({
@@ -144,12 +156,14 @@ const XtreamLogin = ({ onLogin, onClose, isLoading = false, theme = 'dark' }) =>
           }
         }
         
-        // Thirr onLogin me të dhënat
         onLogin(data);
         onClose();
       } else {
-        console.error('❌ Invalid response:', data);
-        setError('Përgjigja nga serveri nuk është e vlefshme');
+        setDebugInfo({
+          type: 'invalid_response',
+          data: data
+        });
+        throw new Error('Përgjigja nga serveri nuk është e vlefshme');
       }
 
     } catch (error) {
@@ -165,20 +179,6 @@ const XtreamLogin = ({ onLogin, onClose, isLoading = false, theme = 'dark' }) =>
       setServer('http://' + server);
     }
   };
-
-  // Load saved credentials on mount
-  React.useEffect(() => {
-    try {
-      const saved = localStorage.getItem('xtream_credentials');
-      if (saved) {
-        const { server: savedServer, username: savedUsername } = JSON.parse(saved);
-        if (savedServer) setServer(savedServer);
-        if (savedUsername) setUsername(savedUsername);
-      }
-    } catch (error) {
-      console.warn('Could not load saved credentials:', error);
-    }
-  }, []);
 
   const isFormValid = server.trim() && username.trim() && password.trim();
 
@@ -205,7 +205,7 @@ const XtreamLogin = ({ onLogin, onClose, isLoading = false, theme = 'dark' }) =>
             <div className="xtream-error-message" role="alert">
               <div className="error-icon">⚠️</div>
               <div className="error-content">
-                {typeof error === 'string' ? error : error}
+                <strong>Gabim:</strong> {error}
               </div>
               <button 
                 className="error-close" 
@@ -214,6 +214,15 @@ const XtreamLogin = ({ onLogin, onClose, isLoading = false, theme = 'dark' }) =>
               >
                 ×
               </button>
+            </div>
+          )}
+
+          {debugInfo && (
+            <div className="xtream-debug-info">
+              <details>
+                <summary>🔧 Informacion Debug (kliko për detaje)</summary>
+                <pre>{JSON.stringify(debugInfo, null, 2)}</pre>
+              </details>
             </div>
           )}
 
@@ -334,13 +343,6 @@ const XtreamLogin = ({ onLogin, onClose, isLoading = false, theme = 'dark' }) =>
       </div>
     </div>
   );
-};
-
-XtreamLogin.defaultProps = {
-  isLoading: false,
-  theme: 'dark',
-  onLogin: () => {},
-  onClose: () => {}
 };
 
 export default XtreamLogin;
