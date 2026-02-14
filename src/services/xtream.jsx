@@ -5,7 +5,8 @@ import { STREAM_TYPES } from '../constants/iptv';
 // Helper për thirrje te proxy API
 const callXtreamApi = async (server, username, password, extraParams = {}) => {
   try {
-    const response = await axios.get('/api/xtream', {
+    // Ndrysho nga '/api/xtream' në '/api/xtream-proxy'
+    const response = await axios.get('/api/xtream-proxy', {
       params: {
         server,
         username,
