@@ -6,29 +6,97 @@ export async function POST(request) {
     const body = await request.json();
     const { server, username, password } = body;
     
-    // Krijo URL-në e duhur për API-në Xtream
-    const apiUrl = `${server}/player_api.php?username=${username}&password=${password}`;
+    console.log('🔵 Proxy received:', { server, username });
     
-    const response = await fetch(apiUrl, {
-      method: 'GET',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-    });
+    // Pastro server URL
+    let baseUrl = server.trim();
+    if (!baseUrl.startsWith('http')) {
+      baseUrl = 'http://' + baseUrl;
+    }
     
-    const data = await response.json();
+    // Xtream Codes përdor formate të ndryshme API
+    // Provo formatet e ndryshme
+    const endpoints = [
+      `${baseUrl}/player_api.php?username=${username}&password=${password}`,
+      `${baseUrl}/api/v1/authenticate?username=${username}&password=${password}`,
+      `${baseUrl}/api.php?act=login&username=${username}&password=${password}`,
+      `${baseUrl}/xmltv.php?username=${username}&password=${password}`,
+    ];
     
-    // Shto CORS headers
-    return NextResponse.json(data, {
-      headers: {
-        'Access-Control-Allow-Origin': '*',
-        'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-        'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-      },
-    });
-  } catch (error) {
+    let lastError = null;
+    
+    // Provo çdo endpoint derisa njëri të funksionojë
+    for (const url of endpoints) {
+      try {
+        console.log('🟡 Trying endpoint:', url);
+        
+        const response = await fetch(url, {
+          method: 'GET', // Xtream Codes shpesh përdor GET
+          headers: {
+            'Accept': 'application/json',
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+          },
+          timeout: 10000, // 10 sekonda timeout
+        });
+        
+        console.log('🔵 Response status:', response.status);
+        console.log('🔵 Response headers:', response.headers.get('content-type'));
+        
+        // Lexo si text fillimisht
+        const text = await response.text();
+        console.log('📦 Raw response:', text.substring(0, 200)); // Log first 200 chars
+        
+        // Kontrollo nëse përgjigja është HTML
+        if (text.trim().startsWith('<!DOCTYPE') || text.trim().startsWith('<html')) {
+          console.log('⚠️ Received HTML instead of JSON');
+          continue; // Provo endpoint-in tjetër
+        }
+        
+        // Provoni të parse JSON
+        try {
+          const data = JSON.parse(text);
+          console.log('✅ Success with endpoint:', url);
+          
+          // Shto CORS headers dhe kthe përgjigjen
+          return NextResponse.json(data, {
+            headers: {
+              'Access-Control-Allow-Origin': '*',
+              'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+              'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+            },
+          });
+        } catch (parseError) {
+          console.log('❌ JSON parse failed for endpoint:', url);
+          lastError = parseError;
+          continue; // Provo endpoint-in tjetër
+        }
+        
+      } catch (fetchError) {
+        console.log('❌ Fetch failed for endpoint:', url, fetchError.message);
+        lastError = fetchError;
+        continue;
+      }
+    }
+    
+    // Nëse asnjë endpoint nuk funksionoi
+    console.error('❌ All endpoints failed');
     return NextResponse.json(
-      { error: error.message },
+      { 
+        error: 'Nuk u arrit të lidhet me serverin. Kontrollo URL-në dhe provo përsëri.',
+        details: lastError?.message 
+      },
+      { 
+        status: 400,
+        headers: {
+          'Access-Control-Allow-Origin': '*',
+        },
+      }
+    );
+    
+  } catch (error) {
+    console.error('❌ Proxy error:', error);
+    return NextResponse.json(
+      { error: 'Internal server error', details: error.message },
       { 
         status: 500,
         headers: {
@@ -39,7 +107,7 @@ export async function POST(request) {
   }
 }
 
-// Për preflight requests (OPTIONS)
+// Për preflight requests
 export async function OPTIONS() {
   return NextResponse.json(null, {
     headers: {
