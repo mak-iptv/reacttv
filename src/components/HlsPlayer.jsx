@@ -54,7 +54,7 @@ const HlsPlayer = ({
     }
   }, [onError]);
 
-  // Funksioni startVideo i integruar
+  // Funksioni startVideo i integruar - HEKQIM KONVERTIMIN AUTOMATIK
   const startVideo = useCallback((url) => {
     const player = videoRef.current;
     if (!player) return;
@@ -69,14 +69,17 @@ const HlsPlayer = ({
       hlsRef.current = null;
     }
 
-    // Konverto HTTP në HTTPS nëse jemi në HTTPS
+    // === HEQIM KONVERTIMIN AUTOMATIK HTTP->HTTPS ===
+    // Përdor URL-në origjinale pa konvertim
     let finalUrl = url;
-    if (window.location.protocol === 'http:' && url.startsWith('http:')) {
-      console.log('🔄 Konverto HTTP në HTTP:', url);
-      finalUrl = url.replace('http://', 'http://');
-    }
+    
+    // Vetëm nëse është absolutisht e nevojshme, por për tani e lëmë ashtu siç është
+    // Nëse do të duash të shtosh konvertim të kontrolluar, mund ta bësh kështu:
+    // if (window.location.protocol === 'https:' && url.startsWith('http:') && confirmUserWantsHttps) {
+    //   finalUrl = url.replace('http://', 'https://');
+    // }
 
-    console.log('🎬 Start video:', finalUrl.substring(0, 100) + '...');
+    console.log('🎬 Start video (original URL):', finalUrl);
 
     // Kontrollo nëse është HLS stream
     const isHls = finalUrl.includes('.m3u8') || finalUrl.includes('playlist.m3u8');
@@ -121,7 +124,7 @@ const HlsPlayer = ({
           console.log('✅ HLS manifest parsed, levels:', data.levels.length);
           setIsReady(true);
           setError(null);
-          setRetryCount(0); // Reset retry count on success
+          setRetryCount(0);
           
           if (isPlaying) {
             player.play().catch(e => console.warn('Play failed:', e));
@@ -153,7 +156,6 @@ const HlsPlayer = ({
                 break;
             }
           } else if (data.details === 'manifestLoadingFailed' || data.details === 'manifestLoadingError') {
-            // Handle non-fatal manifest errors
             if (retryCount < MAX_RETRIES) {
               console.log(`Retry attempt ${retryCount + 1}/${MAX_RETRIES}`);
               setTimeout(() => {
@@ -169,7 +171,6 @@ const HlsPlayer = ({
         
       } catch (err) {
         console.error('HLS init error:', err);
-        // Fallback to native video
         player.src = finalUrl;
         player.load();
       }
@@ -225,7 +226,6 @@ const HlsPlayer = ({
         playPromise.catch(err => {
           console.warn('Play failed:', err);
           if (err.name === 'NotAllowedError') {
-            // Autoplay prevented - need user interaction
             setIsBuffering(false);
             onPlayPause?.();
           }
@@ -323,12 +323,10 @@ const HlsPlayer = ({
     }
     
     if (videoRef.current) {
-      // Clear video source
       videoRef.current.pause();
       videoRef.current.removeAttribute('src');
       videoRef.current.load();
       
-      // Small delay before retry
       setTimeout(() => {
         if (src) startVideo(src);
       }, 1000);
@@ -344,14 +342,12 @@ const HlsPlayer = ({
       } else if (videoRef.current.msRequestFullscreen) {
         videoRef.current.msRequestFullscreen();
       } else if (videoRef.current.webkitEnterFullscreen) {
-        // iOS Safari
         videoRef.current.webkitEnterFullscreen();
       }
     }
   }, []);
 
   const handleNativeControls = useCallback(() => {
-    // Toggle native controls temporarily
     if (videoRef.current) {
       videoRef.current.controls = true;
       setTimeout(() => {
