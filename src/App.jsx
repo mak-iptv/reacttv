@@ -123,30 +123,35 @@ function AppContent() {
     }
   }, [sourceType, xtreamCredentials]);
 
-  // ================ BUILD STREAM URL ================
-  const buildStreamUrlFromCredentials = useCallback((item) => {
-    if (sourceType !== SOURCE_TYPES.XTREAM || !xtreamCredentials.isLoggedIn) {
-      return item.stream_url || item.url;
-    }
+ const buildStreamUrlFromCredentials = useCallback((item) => {
+  let originalUrl;
 
+  if (sourceType === SOURCE_TYPES.XTREAM && xtreamCredentials.isLoggedIn) {
     const { server, username, password } = xtreamCredentials;
     const streamType = getStreamType(item, activeTab);
     const streamId = item.stream_id || item.series_id || item.id;
     const extension = item.container_extension || 'm3u8';
 
-    const originalUrl = buildStreamUrl(
-  streamType,
-  streamId,
-  server,
-  username,
-  password,
-  extension
-);
+    originalUrl = buildStreamUrl(
+      streamType,
+      streamId,
+      server,
+      username,
+      password,
+      extension
+    );
+  } else {
+    // për M3U ose playlists të tjera
+    originalUrl = item.stream_url || item.url;
+  }
 
-// kalon stream përmes proxy që të shmanget Mixed Content
-return `/api/stream?url=${encodeURIComponent(originalUrl)}`;
+  if (!originalUrl) return null;
+
+  // ✅ Kalo gjithmonë përmes proxy
+  return `/api/stream?url=${encodeURIComponent(originalUrl)}`;
 
 }, [sourceType, xtreamCredentials, activeTab]);
+
 
 
   // ================ HANDLE PLAY ================
