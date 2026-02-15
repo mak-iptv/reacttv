@@ -1,6 +1,4 @@
 // /pages/api/xtream.js
-import fetch from 'node-fetch';
-
 export default async function handler(req, res) {
   try {
     const { server, username, password } = req.query;
@@ -11,10 +9,17 @@ export default async function handler(req, res) {
 
     // Funksion ndihmës për të marrë të dhëna nga Xtream API
     const fetchCategory = async (action) => {
-      const url = `${server}/player_api.php?username=${username}&password=${password}&action=${action}`;
-      const response = await fetch(url);
-      if (!response.ok) return [];
-      return await response.json();
+      try {
+        const url = `${server}/player_api.php?username=${username}&password=${password}&action=${action}`;
+        const response = await fetch(url, {
+          headers: { 'User-Agent': 'Mozilla/5.0' }
+        });
+        if (!response.ok) return [];
+        return await response.json();
+      } catch (err) {
+        console.error(`Gabim gjatë marrjes së ${action}:`, err);
+        return [];
+      }
     };
 
     // Merr Live TV, Movies, Series
@@ -22,15 +27,22 @@ export default async function handler(req, res) {
     const movies = await fetchCategory('get_vod_streams');
     const series = await fetchCategory('get_series');
 
-    // Funksion për të standardizuar stream-et në HLS URL
-    const formatStream = (ch, type) => ({
-      id: ch.stream_id || ch.series_id || ch.id,
-      name: ch.name,
-      category: ch.category || type,
-      logo: ch.stream_icon || '',
-      type,
-      url: `${server}/live/${username}/${password}/${ch.stream_id || ch.series_id || ch.id}.m3u8`
-    });
+    // Funksion për të standardizuar stream-et me URL të sakta
+    const formatStream = (ch, type) => {
+      let url;
+      if (type === 'live') url = `${server}/live/${username}/${password}/${ch.stream_id}.m3u8`;
+      else if (type === 'movie') url = `${server}/movie/${username}/${password}/${ch.stream_id}.m3u8`;
+      else if (type === 'series') url = `${server}/series/${username}/${password}/${ch.series_id}.m3u8`;
+
+      return {
+        id: ch.stream_id || ch.series_id || ch.id,
+        name: ch.name,
+        category: ch.category || type,
+        logo: ch.stream_icon || '',
+        type,
+        url
+      };
+    };
 
     const streams = [
       ...liveChannels.map(ch => formatStream(ch, 'live')),
@@ -41,7 +53,7 @@ export default async function handler(req, res) {
     res.status(200).json({ streams });
 
   } catch (err) {
-    console.error('Xtream API error:', err);
+    console.error('Gabim i përgjithshëm në Xtream API:', err);
     res.status(500).json({ error: 'Gabim serveri' });
   }
 }
