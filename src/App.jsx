@@ -10,6 +10,8 @@ import ChannelListWithPagination from "./components/ChannelListWithPagination";
 import VirtualChannelList from "./components/VirtualChannelList";
 import Toast from "./components/Toast";
 import LoadingSpinner from "./components/LoadingSpinner";
+import LanguageSelector from "./components/LanguageSelector";
+import { LanguageProvider, useLanguage } from "./contexts/LanguageContext";
 import { useIPTVData } from "./hooks/useIPTVData";
 import { useTheme } from "./hooks/useTheme";
 import { useErrorHandler } from "./hooks/useErrorHandler";
@@ -55,8 +57,9 @@ const INITIAL_LOADING_STATE = {
   general: false
 };
 
-function App() {
+function AppContent() {
   const { theme, toggleTheme } = useTheme();
+  const { t } = useLanguage();
   const { error, success, handleError, handleSuccess, clearMessages } = useErrorHandler();
   const [favorites, setFavorites] = useLocalStorage('iptv-favorites', []);
   const [recentItems, setRecentItems] = useLocalStorage('iptv-recent', []);
@@ -146,7 +149,7 @@ function App() {
       const streamUrl = buildStreamUrlFromCredentials(item);
       
       if (!streamUrl) {
-        throw new Error('Stream URL nuk eshte i vlefshem');
+        throw new Error(t('streamUrlInvalid') || 'Stream URL nuk eshte i vlefshem');
       }
 
       const itemId = getItemId(item);
@@ -181,9 +184,9 @@ function App() {
       
     } catch (err) {
       console.error('❌ Play error:', err);
-      handleError(err, 'Gabim gjatë luajtjes: ' + err.message);
+      handleError(err, t('playerError') + ': ' + err.message);
     }
-  }, [buildStreamUrlFromCredentials, activeTab, fetchEPGData, handleError, setRecentItems]);
+  }, [buildStreamUrlFromCredentials, activeTab, fetchEPGData, handleError, setRecentItems, t]);
 
   // ================ HANDLE XTREAM LOGIN ================
   const handleXtreamLogin = useCallback(async (credentials) => {
@@ -191,17 +194,10 @@ function App() {
     clearMessages();
     
     try {
-      // Validim URL
-      try {
-        new URL(credentials.server);
-      } catch (urlError) {
-        throw new Error('URL e pavlefshme');
-      }
-
       const login = await xtreamLogin(credentials.server, credentials.username, credentials.password);
       
       if (!login.success) {
-        throw new Error(login.error || 'Kredencialet e gabuara');
+        throw new Error(login.error || t('loginError') || 'Kredencialet e gabuara');
       }
 
       const [content, allCategories] = await Promise.all([
@@ -262,15 +258,15 @@ function App() {
       setActiveTab(TABS.LIVE);
       setSelectedCategory(APP_CONSTANTS.DEFAULT_CATEGORY);
       
-      handleSuccess(`✅ U lidhët! ${liveWithUrls.length} kanale, ${moviesWithUrls.length} filma, ${seriesWithUrls.length} seriale`);
+      handleSuccess(t('loginSuccess') + `! ${liveWithUrls.length} ${t('channels')}, ${moviesWithUrls.length} ${t('movies')}, ${seriesWithUrls.length} ${t('series')}`);
       
     } catch (err) {
       console.error('❌ Login error:', err);
-      handleError(err, err.message || 'Nuk u lidh me serverin');
+      handleError(err, t('loginError') + ': ' + err.message);
     } finally {
       setLoading('general', false);
     }
-  }, [setChannels, setMovies, setSeries, setCategories, handleSuccess, handleError, clearMessages, setLoading]);
+  }, [setChannels, setMovies, setSeries, setCategories, handleSuccess, handleError, clearMessages, setLoading, t]);
 
   // ================ HANDLE M3U LOAD ================
   const handleM3ULoad = useCallback(async (source) => {
@@ -290,14 +286,14 @@ function App() {
           channels = parseM3U(m3uText);
         } catch (error) {
           window.open(source.url, '_blank');
-          handleSuccess('✅ Playlist po shkarkohet! Tani ngarko file-in nga M3UUploader.');
+          handleSuccess(t('downloadingPlaylist') || '✅ Playlist po shkarkohet! Tani ngarko file-in nga M3UUploader.');
           setLoading('general', false);
           return;
         }
       }
 
       if (channels.length === 0) {
-        throw new Error('Nuk u gjet asnjë kanal në playlist');
+        throw new Error(t('noChannelsFound') || 'Nuk u gjet asnjë kanal në playlist');
       }
 
       setChannels(channels);
@@ -306,7 +302,7 @@ function App() {
       setActiveTab(TABS.LIVE);
       setSelectedCategory(APP_CONSTANTS.DEFAULT_CATEGORY);
       
-      handleSuccess(`✅ ${channels.length} kanale u ngarkuan nga M3U`);
+      handleSuccess(t('channelsLoaded', { count: channels.length }));
       
     } catch (err) {
       console.error('❌ M3U error:', err);
@@ -314,7 +310,7 @@ function App() {
     } finally {
       setLoading('general', false);
     }
-  }, [setChannels, handleSuccess, handleError, clearMessages, setLoading]);
+  }, [setChannels, handleSuccess, handleError, clearMessages, setLoading, t]);
 
   // ================ TOGGLE FAVORITE ================
   const toggleFavorite = useCallback((id) => {
@@ -340,7 +336,6 @@ function App() {
     setSelectedItem(null);
     setSearchQuery("");
     clearMessages();
-    setShowM3UModal(true);
   }, [clearData, clearMessages]);
 
   // ================ TOGGLE SIDEBAR ================
@@ -442,13 +437,11 @@ function App() {
       }
     });
     
-    const sortedCategories = Array.from(categoriesSet).sort((a, b) => {
+    return Array.from(categoriesSet).sort((a, b) => {
       if (a === APP_CONSTANTS.DEFAULT_CATEGORY) return -1;
       if (b === APP_CONSTANTS.DEFAULT_CATEGORY) return 1;
       return a.localeCompare(b);
     });
-    
-    return sortedCategories;
   }, [activeTab, safeChannels, safeMovies, safeSeries]);
 
   const filteredItems = useMemo(() => {
@@ -503,7 +496,7 @@ function App() {
   const handlePlayerError = useCallback((error) => {
     console.error('🎬 Player error:', error);
     
-    let errorMessage = 'Gabim në player';
+    let errorMessage = t('playerError');
     
     if (error) {
       if (typeof error === 'string') {
@@ -513,26 +506,29 @@ function App() {
       } else if (error.type === 'videoError') {
         switch (error.code) {
           case 2:
-            errorMessage = 'Gabim në rrjet. Kontrollo lidhjen.';
+            errorMessage = t('networkError');
             break;
           case 3:
-            errorMessage = 'Gabim në dekodimin e videos.';
+            errorMessage = t('decodeError');
             break;
           case 4:
-            errorMessage = 'Formati i videos nuk mbështetet.';
+            errorMessage = t('formatNotSupported');
             break;
           default:
-            errorMessage = 'Gabim në ngarkimin e videos.';
+            errorMessage = t('videoError');
         }
       } else if (error.type === 'hlsError') {
-        errorMessage = `Problem me stream-in: ${error.message || error.details || ''}`;
+        errorMessage = t('streamError') + ': ' + (error.message || error.details || '');
       } else if (error.type === 'authError') {
-        errorMessage = 'Nuk keni autorizim për këtë stream. Kontrollo kredencialet.';
+        errorMessage = t('unauthorized');
       }
     }
     
-    handleError(errorMessage);
-  }, [handleError]);
+    handleError(
+      error instanceof Error ? error : new Error(errorMessage), 
+      errorMessage
+    );
+  }, [handleError, t]);
 
   // ================ RENDER ================
   if (!sourceType) {
@@ -608,7 +604,7 @@ function App() {
             <button 
               className="smart-menu-btn" 
               onClick={toggleSidebar}
-              aria-label={isSidebarOpen ? 'Mbyll menunë' : 'Hap menunë'}
+              aria-label={isSidebarOpen ? t('closeMenu') : t('openMenu')}
             >
               {isSidebarOpen ? '◀' : '▶'}
             </button>
@@ -635,31 +631,34 @@ function App() {
             <button 
               className="smart-search" 
               onClick={() => setShowSearchModal(true)}
-              aria-label="Kërko"
+              aria-label={t('search')}
             >
               <span className="smart-search-icon">🔍</span>
               <span className="smart-search-text">
-                Kërko {activeTab === TABS.LIVE ? 'kanale' : 
-                       activeTab === TABS.MOVIES ? 'filma' : 'seriale'}...
+                {t('searchPlaceholder', { 
+                  type: activeTab === TABS.LIVE ? t('channels') : 
+                        activeTab === TABS.MOVIES ? t('movies') : t('series')
+                })}
               </span>
-              <span className="smart-search-hint">Ctrl+K</span>
+              <span className="smart-search-hint">{t('searchHint')}</span>
             </button>
           </div>
 
           <div className="smart-header-right">
+            <LanguageSelector theme={theme} />
             <button 
               className="smart-icon-btn theme-btn" 
               onClick={toggleTheme} 
-              title={theme === 'dark' ? 'Light Mode' : 'Dark Mode'}
-              aria-label="Ndrysho temën"
+              title={theme === 'dark' ? t('lightMode') : t('darkMode')}
+              aria-label={theme === 'dark' ? t('lightMode') : t('darkMode')}
             >
               {theme === 'dark' ? '☀️' : '🌙'}
             </button>
             <button 
               className="smart-icon-btn logout-btn" 
               onClick={handleLogout} 
-              title="Çkyçu"
-              aria-label="Çkyçu"
+              title={t('logout')}
+              aria-label={t('logout')}
             >
               <span className="icon">🚪</span>
             </button>
@@ -673,10 +672,10 @@ function App() {
               <button 
                 className={`smart-tab ${activeTab === TABS.LIVE ? 'active' : ''}`}
                 onClick={() => handleTabChange(TABS.LIVE)}
-                aria-label="Live TV"
+                aria-label={t('live')}
               >
                 <span className="tab-icon">📺</span>
-                <span className="tab-text">Live TV</span>
+                <span className="tab-text">{t('live')}</span>
                 <span className="tab-count">{safeChannels?.length || 0}</span>
               </button>
             )}
@@ -684,10 +683,10 @@ function App() {
               <button 
                 className={`smart-tab ${activeTab === TABS.MOVIES ? 'active' : ''}`}
                 onClick={() => handleTabChange(TABS.MOVIES)}
-                aria-label="Filma"
+                aria-label={t('movies')}
               >
                 <span className="tab-icon">🎬</span>
-                <span className="tab-text">Filma</span>
+                <span className="tab-text">{t('movies')}</span>
                 <span className="tab-count">{safeMovies?.length || 0}</span>
               </button>
             )}
@@ -695,10 +694,10 @@ function App() {
               <button 
                 className={`smart-tab ${activeTab === TABS.SERIES ? 'active' : ''}`}
                 onClick={() => handleTabChange(TABS.SERIES)}
-                aria-label="Seriale"
+                aria-label={t('series')}
               >
                 <span className="tab-icon">📺</span>
-                <span className="tab-text">Seriale</span>
+                <span className="tab-text">{t('series')}</span>
                 <span className="tab-count">{safeSeries?.length || 0}</span>
               </button>
             )}
@@ -723,9 +722,9 @@ function App() {
                   />
                   <div className="smart-now-info">
                     <span className="smart-now-label">
-                      {currentStreamInfo?.type === STREAM_TYPES.LIVE ? 'LIVE' : 
-                       currentStreamInfo?.type === STREAM_TYPES.MOVIE ? 'FILM' : 
-                       currentStreamInfo?.type === STREAM_TYPES.SERIES ? 'SERIAL' : 'DUKE U LUATUR'}
+                      {currentStreamInfo?.type === STREAM_TYPES.LIVE ? t('live') : 
+                       currentStreamInfo?.type === STREAM_TYPES.MOVIE ? t('movie') : 
+                       currentStreamInfo?.type === STREAM_TYPES.SERIES ? t('series') : t('playing')}
                     </span>
                     <span className="smart-now-name">{currentStreamInfo?.name}</span>
                     {currentEpg && (
@@ -763,7 +762,7 @@ function App() {
           <aside className={`smart-sidebar ${isSidebarOpen ? 'open' : 'closed'}`}>
             <div className="smart-categories">
               <div className="smart-categories-header">
-                <h3>KATEGORITË</h3>
+                <h3>{t('categories')}</h3>
                 <span className="smart-category-count">
                   {currentCategories.length - 1}
                 </span>
@@ -791,8 +790,8 @@ function App() {
                         </span>
                         <span className="smart-category-name">
                           {category === APP_CONSTANTS.DEFAULT_CATEGORY 
-                            ? activeTab === TABS.LIVE ? 'Të gjitha kanalet' :
-                              activeTab === TABS.MOVIES ? 'Të gjithë filmat' : 'Të gjitha serialet'
+                            ? activeTab === TABS.LIVE ? t('allChannels') :
+                              activeTab === TABS.MOVIES ? t('allMovies') : t('allSeries')
                             : category}
                         </span>
                         <span className="smart-category-badge">{count}</span>
@@ -802,7 +801,7 @@ function App() {
                 </ul>
               ) : (
                 <div className="smart-no-categories">
-                  <p>Nuk ka kategori</p>
+                  <p>{t('noCategories')}</p>
                 </div>
               )}
             </div>
@@ -817,8 +816,8 @@ function App() {
                 </span>
                 <h2>
                   {selectedCategory === APP_CONSTANTS.DEFAULT_CATEGORY 
-                    ? activeTab === TABS.LIVE ? 'Të gjitha kanalet' :
-                      activeTab === TABS.MOVIES ? 'Të gjithë filmat' : 'Të gjitha serialet'
+                    ? activeTab === TABS.LIVE ? t('allChannels') :
+                      activeTab === TABS.MOVIES ? t('allMovies') : t('allSeries')
                     : selectedCategory}
                 </h2>
                 <span className="smart-content-count">{filteredItems.length}</span>
@@ -843,6 +842,14 @@ function App() {
         {isLoading.general && <LoadingSpinner theme={theme} />}
       </div>
     </ErrorBoundary>
+  );
+}
+
+function App() {
+  return (
+    <LanguageProvider>
+      <AppContent />
+    </LanguageProvider>
   );
 }
 
