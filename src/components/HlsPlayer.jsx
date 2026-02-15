@@ -21,6 +21,7 @@ const HlsPlayer = ({
   const [error, setError] = useState(null);
   const [retryCount, setRetryCount] = useState(0);
   const [isBuffering, setIsBuffering] = useState(false);
+  const [usingProxy, setUsingProxy] = useState(false);
   const bufferTimerRef = useRef(null);
   const errorReportedRef = useRef(false);
   const MAX_RETRIES = 3;
@@ -54,8 +55,21 @@ const HlsPlayer = ({
     }
   }, [onError]);
 
+  // Funksion për të krijuar një proxy CORS
+  const createProxyUrl = useCallback((url) => {
+    // Përdor një CORS proxy për të kaluar bllokimin
+    // Kjo është një zgjidhje e përkohshme - për production përdor proxy-in tënd
+    const corsProxies = [
+      'https://cors-anywhere.herokuapp.com/',
+      'https://api.allorigins.win/raw?url='
+    ];
+    
+    // Provo proxy të parë
+    return corsProxies[0] + encodeURIComponent(url);
+  }, []);
+
   // Funksioni startVideo i integruar
-  const startVideo = useCallback((url) => {
+  const startVideo = useCallback((url, useProxy = false) => {
     const player = videoRef.current;
     if (!player) return;
 
@@ -69,10 +83,19 @@ const HlsPlayer = ({
       hlsRef.current = null;
     }
 
-    // Përdor URL-në origjinale pa konvertim
-    let finalUrl = url;
+    // Përdor URL-në origjinale ose proxy
+    let finalUrl = useProxy ? createProxyUrl(url) : url;
+    
+    // Kontrollo nëse jemi në HTTPS dhe URL është HTTP
+    const isHttpsPage = window.location.protocol === 'https:';
+    const isHttpUrl = finalUrl.startsWith('http:');
+    
+    if (isHttpsPage && isHttpUrl && !useProxy) {
+      console.warn('⚠️ Mixed Content: HTTPS page loading HTTP resource');
+      // Mos konverto automatikisht, por trego paralajmërim
+    }
 
-    console.log('🎬 Start video:', finalUrl);
+    console.log('🎬 Start video:', finalUrl.substring(0, 100) + '...');
 
     // Kontrollo nëse është HLS stream
     const isHls = finalUrl.includes('.m3u8') || finalUrl.includes('playlist.m3u8');
@@ -94,20 +117,15 @@ const HlsPlayer = ({
           fragLoadingMaxRetry: 4,
           startLevel: -1,
           debug: false,
-          // xhrSetup i modifikuar - PA USER-AGENT
           xhrSetup: (xhr, url) => {
-            // Vendos vetëm headera të lejuar
             xhr.setRequestHeader('Accept', '*/*');
             xhr.setRequestHeader('Accept-Language', 'en-US,en;q=0.9');
             
-            // Shto Referer dhe Origin vetëm për domain-e specifike
-            if (url.includes('panther-tv.com') || url.includes('balkan-x.net') || url.includes('zdravahrana.dyndns.info')) {
+            // Shto Referer dhe Origin për domain-e specifike
+            if (url.includes('zdravahrana.dyndns.info')) {
               xhr.setRequestHeader('Referer', 'https://google.com/');
               xhr.setRequestHeader('Origin', 'https://google.com');
             }
-            
-            // IMPORTANT: Mos u mundo të vendosësh "User-Agent" sepse është i ndaluar!
-            // Shfletuesi e vendos automatikisht User-Agent-in e duhur
           }
         });
 
@@ -123,6 +141,7 @@ const HlsPlayer = ({
           setIsReady(true);
           setError(null);
           setRetryCount(0);
+          setUsingProxy(useProxy);
           
           if (isPlaying) {
             player.play().catch(e => console.warn('Play failed:', e));
@@ -136,7 +155,17 @@ const HlsPlayer = ({
             switch (data.type) {
               case Hls.ErrorTypes.NETWORK_ERROR:
                 console.log('Network error, trying to recover...');
-                // Rrit gradualisht vonesën para se të provosh përsëri
+                
+                // Kontrollo nëse errori është për shkak të Mixed Content
+                if (data.details === 'manifestLoadError' && !useProxy && retryCount < MAX_RETRIES) {
+                  console.log('Provo me CORS proxy...');
+                  setUsingProxy(true);
+                  setTimeout(() => {
+                    startVideo(url, true);
+                  }, 1000);
+                  return;
+                }
+                
                 const delay = Math.min(2000 * (retryCount + 1), 10000);
                 setTimeout(() => {
                   if (hlsRef.current) {
@@ -157,17 +186,6 @@ const HlsPlayer = ({
                 });
                 break;
             }
-          } else if (data.details === 'manifestLoadingFailed' || data.details === 'manifestLoadingError') {
-            if (retryCount < MAX_RETRIES) {
-              console.log(`Retry attempt ${retryCount + 1}/${MAX_RETRIES}`);
-              setTimeout(() => {
-                if (hlsRef.current) {
-                  hlsRef.current.loadSource(finalUrl);
-                }
-              }, 2000);
-            } else {
-              setError('Nuk mund të ngarkohet playlist-i. Kontrollo lidhjen.');
-            }
           }
         });
 
@@ -175,7 +193,6 @@ const HlsPlayer = ({
         
       } catch (err) {
         console.error('HLS init error:', err);
-        // Fallback to native video
         player.src = finalUrl;
         player.load();
       }
@@ -186,6 +203,7 @@ const HlsPlayer = ({
       setIsReady(true);
       setError(null);
       setRetryCount(0);
+      setUsingProxy(useProxy);
     } else if (!isHls) {
       // Direct video file (mp4, etc)
       player.src = finalUrl;
@@ -193,12 +211,13 @@ const HlsPlayer = ({
       setIsReady(true);
       setError(null);
       setRetryCount(0);
+      setUsingProxy(useProxy);
     } else {
       // HLS not supported
       setError('Shfletuesi juaj nuk mbështet HLS');
       reportError({ type: 'unsupported', details: 'HLS not supported' });
     }
-  }, [isPlaying, reportError, retryCount]);
+  }, [isPlaying, reportError, retryCount, createProxyUrl]);
 
   // Initialize player when src changes
   useEffect(() => {
@@ -209,8 +228,9 @@ const HlsPlayer = ({
     setIsBuffering(false);
     errorReportedRef.current = false;
     setRetryCount(0);
+    setUsingProxy(false);
     
-    startVideo(src);
+    startVideo(src, false);
     
     return () => {
       if (hlsRef.current) {
@@ -332,8 +352,10 @@ const HlsPlayer = ({
       videoRef.current.removeAttribute('src');
       videoRef.current.load();
       
+      // Provo me proxy nëse është hera e dytë
+      const useProxy = retryCount >= 1;
       setTimeout(() => {
-        if (src) startVideo(src);
+        if (src) startVideo(src, useProxy);
       }, 1000);
     }
   }, [retryCount, src, startVideo]);
@@ -383,6 +405,7 @@ const HlsPlayer = ({
           <div className="player-loading">
             <div className="loading-spinner"></div>
             <p>Duke ngarkuar stream-in...</p>
+            {usingProxy && <p className="proxy-note">Duke përdorur CORS proxy...</p>}
           </div>
         )}
         
@@ -399,6 +422,7 @@ const HlsPlayer = ({
           <div className="player-error">
             <span className="error-icon">⚠️</span>
             <p>{error}</p>
+            <p className="error-detail">Mixed Content: HTTPS page cannot load HTTP resource</p>
             <div className="error-actions">
               <button onClick={handleRetry} className="retry-btn">
                 Provo përsëri
