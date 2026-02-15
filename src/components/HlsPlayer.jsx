@@ -73,7 +73,7 @@ const HlsPlayer = ({
     let finalUrl = url;
     if (window.location.protocol === 'https:' && url.startsWith('http:')) {
       console.log('🔄 Konverto HTTP në HTTPS:', url);
-      finalUrl = url.replace('http://', 'https://');
+      finalUrl = url.replace('https://', 'http://');
     }
 
     console.log('🎬 Start video:', finalUrl.substring(0, 100) + '...');
