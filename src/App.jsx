@@ -3,6 +3,7 @@ import React, { useState, useEffect, useMemo, useCallback } from "react";
 import ErrorBoundary from "./components/ErrorBoundary";
 import HlsPlayer from "./components/HlsPlayer";
 import XtreamLogin from "./components/XtreamLogin";
+import XtreamLogin from "./other/axios";
 import M3UUploader from "./components/M3UUploader";
 import SearchModal from "./components/SearchModal";
 import WelcomeScreen from "./components/WelcomeScreen";
