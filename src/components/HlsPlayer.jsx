@@ -121,6 +121,7 @@ const HlsPlayer = ({
           console.log('✅ HLS manifest parsed, levels:', data.levels.length);
           setIsReady(true);
           setError(null);
+          setRetryCount(0); // Reset retry count on success
           
           if (isPlaying) {
             player.play().catch(e => console.warn('Play failed:', e));
@@ -134,17 +135,32 @@ const HlsPlayer = ({
             switch (data.type) {
               case Hls.ErrorTypes.NETWORK_ERROR:
                 console.log('Network error, trying to recover...');
-                setTimeout(() => hls.startLoad(), 2000);
+                setTimeout(() => {
+                  hls.startLoad();
+                }, 2000);
                 break;
               case Hls.ErrorTypes.MEDIA_ERROR:
                 console.log('Media error, trying to recover...');
                 hls.recoverMediaError();
                 break;
               default:
-                console.log('Fatal error');
+                console.log('Fatal error - cannot recover');
                 setError('Problem me stream-in');
-                reportError({ type: 'hlsError', details: data.details });
+                reportError({ 
+                  type: 'hlsError', 
+                  details: data.details || data.error?.message || 'Gabim i panjohur HLS' 
+                });
                 break;
+            }
+          } else if (data.details === 'manifestLoadingFailed' || data.details === 'manifestLoadingError') {
+            // Handle non-fatal manifest errors
+            if (retryCount < MAX_RETRIES) {
+              console.log(`Retry attempt ${retryCount + 1}/${MAX_RETRIES}`);
+              setTimeout(() => {
+                hls.loadSource(finalUrl);
+              }, 2000);
+            } else {
+              setError('Nuk mund të ngarkohet playlist-i. Kontrollo lidhjen.');
             }
           }
         });
@@ -153,21 +169,30 @@ const HlsPlayer = ({
         
       } catch (err) {
         console.error('HLS init error:', err);
+        // Fallback to native video
         player.src = finalUrl;
         player.load();
       }
     } else if (isHls && player.canPlayType('application/vnd.apple.mpegurl')) {
-      // Safari
+      // Safari native HLS support
       player.src = finalUrl;
       player.load();
       setIsReady(true);
+      setError(null);
+      setRetryCount(0);
+    } else if (!isHls) {
+      // Direct video file (mp4, etc)
+      player.src = finalUrl;
+      player.load();
+      setIsReady(true);
+      setError(null);
+      setRetryCount(0);
     } else {
-      // Direct video
-      player.src = finalUrl;
-      player.load();
-      setIsReady(true);
+      // HLS not supported
+      setError('Shfletuesi juaj nuk mbështet HLS');
+      reportError({ type: 'unsupported', details: 'HLS not supported' });
     }
-  }, [isPlaying, reportError]);
+  }, [isPlaying, reportError, retryCount]);
 
   // Initialize player when src changes
   useEffect(() => {
@@ -177,6 +202,7 @@ const HlsPlayer = ({
     setError(null);
     setIsBuffering(false);
     errorReportedRef.current = false;
+    setRetryCount(0);
     
     startVideo(src);
     
@@ -194,12 +220,17 @@ const HlsPlayer = ({
     if (!player || !isReady) return;
 
     if (isPlaying) {
-      player.play().catch(err => {
-        console.warn('Play failed:', err);
-        if (err.name === 'NotAllowedError') {
-          onPlayPause?.();
-        }
-      });
+      const playPromise = player.play();
+      if (playPromise !== undefined) {
+        playPromise.catch(err => {
+          console.warn('Play failed:', err);
+          if (err.name === 'NotAllowedError') {
+            // Autoplay prevented - need user interaction
+            setIsBuffering(false);
+            onPlayPause?.();
+          }
+        });
+      }
     } else {
       player.pause();
     }
@@ -212,32 +243,68 @@ const HlsPlayer = ({
 
     const onWaiting = () => {
       setIsBuffering(true);
-      bufferTimerRef.current = setTimeout(() => setIsBuffering(false), 10000);
+      if (bufferTimerRef.current) clearTimeout(bufferTimerRef.current);
+      bufferTimerRef.current = setTimeout(() => {
+        setIsBuffering(false);
+        if (retryCount < MAX_RETRIES) {
+          handleRetry();
+        }
+      }, 10000);
     };
 
     const onPlaying = () => {
       setIsBuffering(false);
-      if (bufferTimerRef.current) clearTimeout(bufferTimerRef.current);
+      if (bufferTimerRef.current) {
+        clearTimeout(bufferTimerRef.current);
+        bufferTimerRef.current = null;
+      }
     };
 
     const onError = () => {
       const videoError = player.error;
-      if (videoError?.code === 4) {
-        setError('Formati i videos nuk mbështetet');
-        reportError({ type: 'videoError', code: 4 });
+      if (videoError?.code) {
+        let errorMessage = '';
+        switch (videoError.code) {
+          case 1:
+            errorMessage = 'Anulim i ngarkimit të videos';
+            break;
+          case 2:
+            errorMessage = 'Gabim rrjeti - kontrollo lidhjen';
+            break;
+          case 3:
+            errorMessage = 'Dekodimi i videos dështoi';
+            break;
+          case 4:
+            errorMessage = 'Formati i videos nuk mbështetet';
+            break;
+          default:
+            errorMessage = 'Gabim i panjohur video';
+        }
+        setError(errorMessage);
+        reportError({ type: 'videoError', code: videoError.code, details: errorMessage });
       }
+    };
+
+    const onStalled = () => {
+      console.log('Video stalled');
+      setIsBuffering(true);
     };
 
     player.addEventListener('waiting', onWaiting);
     player.addEventListener('playing', onPlaying);
     player.addEventListener('error', onError);
+    player.addEventListener('stalled', onStalled);
+    player.addEventListener('canplay', () => {
+      setIsBuffering(false);
+    });
 
     return () => {
       player.removeEventListener('waiting', onWaiting);
       player.removeEventListener('playing', onPlaying);
       player.removeEventListener('error', onError);
+      player.removeEventListener('stalled', onStalled);
     };
-  }, [reportError]);
+  }, [reportError, retryCount]);
 
   const handleRetry = useCallback(() => {
     if (retryCount >= MAX_RETRIES) {
@@ -248,11 +315,23 @@ const HlsPlayer = ({
     setRetryCount(prev => prev + 1);
     setError(null);
     errorReportedRef.current = false;
+    setIsBuffering(false);
+    
+    if (bufferTimerRef.current) {
+      clearTimeout(bufferTimerRef.current);
+      bufferTimerRef.current = null;
+    }
     
     if (videoRef.current) {
-      videoRef.current.src = '';
+      // Clear video source
+      videoRef.current.pause();
+      videoRef.current.removeAttribute('src');
       videoRef.current.load();
-      setTimeout(() => startVideo(src), 500);
+      
+      // Small delay before retry
+      setTimeout(() => {
+        if (src) startVideo(src);
+      }, 1000);
     }
   }, [retryCount, src, startVideo]);
 
@@ -264,7 +343,22 @@ const HlsPlayer = ({
         videoRef.current.webkitRequestFullscreen();
       } else if (videoRef.current.msRequestFullscreen) {
         videoRef.current.msRequestFullscreen();
+      } else if (videoRef.current.webkitEnterFullscreen) {
+        // iOS Safari
+        videoRef.current.webkitEnterFullscreen();
       }
+    }
+  }, []);
+
+  const handleNativeControls = useCallback(() => {
+    // Toggle native controls temporarily
+    if (videoRef.current) {
+      videoRef.current.controls = true;
+      setTimeout(() => {
+        if (videoRef.current) {
+          videoRef.current.controls = false;
+        }
+      }, 3000);
     }
   }, []);
 
@@ -277,7 +371,7 @@ const HlsPlayer = ({
           ref={videoRef}
           className="video-element"
           playsInline
-          controls={true}
+          controls={false}
           preload="auto"
           poster={currentStreamInfo?.logo}
           crossOrigin="anonymous"
@@ -295,7 +389,7 @@ const HlsPlayer = ({
         {isBuffering && isReady && isPlaying && (
           <div className="player-buffering">
             <div className="buffering-spinner"></div>
-            <p>Duke bufferuar...</p>
+            <p>Duke bufferuar... ({retryCount}/{MAX_RETRIES})</p>
           </div>
         )}
         
@@ -310,6 +404,9 @@ const HlsPlayer = ({
               </button>
               <button onClick={() => window.open(src, '_blank')} className="direct-link-btn">
                 Hap në browser
+              </button>
+              <button onClick={handleNativeControls} className="controls-btn">
+                Trego kontrollet
               </button>
             </div>
           </div>
@@ -339,6 +436,7 @@ const HlsPlayer = ({
                 src={currentStreamInfo.logo} 
                 alt={currentStreamInfo.name}
                 className="channel-logo"
+                loading="lazy"
                 onError={(e) => {
                   e.target.onerror = null;
                   e.target.style.display = 'none';
@@ -355,10 +453,10 @@ const HlsPlayer = ({
             <div className="epg-info">
               <span className="epg-title">{currentEpg.title}</span>
               <span className="epg-time">
-                {new Date(currentEpg.start_timestamp * 1000).toLocaleTimeString([], { 
+                {currentEpg.start_timestamp ? new Date(currentEpg.start_timestamp * 1000).toLocaleTimeString([], { 
                   hour: '2-digit', 
                   minute: '2-digit' 
-                })}
+                }) : ''}
               </span>
             </div>
           )}
