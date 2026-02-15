@@ -2,6 +2,7 @@
 import React, { useState, useEffect, useMemo, useCallback } from "react";
 import ErrorBoundary from "./components/ErrorBoundary";
 import HlsPlayer from "./components/HlsPlayer";
+import XtreamPlayer from './components/XtreamPlayer';
 import XtreamLogin from "./components/XtreamLogin";
 import axios from "axios";
 import M3UUploader from "./components/M3UUploader";
