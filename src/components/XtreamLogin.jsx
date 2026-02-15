@@ -1,4 +1,4 @@
-// XtreamLogin.jsx - VERIFIKO QË KA DEFAULT EXPORT NË FUND!
+// XtreamLogin.jsx
 import React, { useState } from 'react';
 import './XtreamLogin.css';
 
