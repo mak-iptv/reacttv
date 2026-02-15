@@ -1,0 +1,56 @@
+.xtream-player {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.tabs {
+  display: flex;
+  gap: 5px;
+}
+
+.tab-btn {
+  padding: 5px 12px;
+  cursor: pointer;
+  border: 1px solid #ccc;
+  background: #eee;
+  border-radius: 4px;
+}
+
+.tab-btn.active {
+  background: #444;
+  color: white;
+}
+
+.stream-list {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  max-height: 250px;
+  overflow-y: auto;
+  border: 1px solid #ccc;
+  padding: 5px;
+}
+
+.stream-item {
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 3px;
+  border-radius: 4px;
+}
+
+.stream-item:hover {
+  background: #ddd;
+}
+
+.stream-logo {
+  width: 30px;
+  height: 30px;
+  object-fit: contain;
+}
+
+.player-container {
+  margin-top: 10px;
+}
