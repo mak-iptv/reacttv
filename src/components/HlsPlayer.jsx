@@ -72,7 +72,7 @@ const HlsPlayer = ({
     // Konverto HTTP në HTTPS nëse jemi në HTTPS
     let finalUrl = url;
     if (window.location.protocol === 'https:' && url.startsWith('http:')) {
-      console.log('🔄 Konverto HTTP në HTTPS:', url);
+      console.log('🔄 Konverto HTTPS në HTTP:', url);
       finalUrl = url.replace('https://', 'http://');
     }
 
