@@ -134,8 +134,20 @@ function AppContent() {
     const streamId = item.stream_id || item.series_id || item.id;
     const extension = item.container_extension || 'm3u8';
 
-    return buildStreamUrl(streamType, streamId, server, username, password, extension);
-  }, [sourceType, xtreamCredentials, activeTab]);
+    const originalUrl = buildStreamUrl(
+  streamType,
+  streamId,
+  server,
+  username,
+  password,
+  extension
+);
+
+// kalon stream përmes proxy që të shmanget Mixed Content
+return `/api/stream?url=${encodeURIComponent(originalUrl)}`;
+
+}, [sourceType, xtreamCredentials, activeTab]);
+
 
   // ================ HANDLE PLAY ================
   const handlePlay = useCallback(async (item) => {
