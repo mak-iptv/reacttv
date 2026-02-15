@@ -54,7 +54,7 @@ const HlsPlayer = ({
     }
   }, [onError]);
 
-  // Funksioni startVideo i integruar - HEKQIM KONVERTIMIN AUTOMATIK
+  // Funksioni startVideo i integruar
   const startVideo = useCallback((url) => {
     const player = videoRef.current;
     if (!player) return;
@@ -69,17 +69,10 @@ const HlsPlayer = ({
       hlsRef.current = null;
     }
 
-    // === HEQIM KONVERTIMIN AUTOMATIK HTTP->HTTPS ===
     // Përdor URL-në origjinale pa konvertim
     let finalUrl = url;
-    
-    // Vetëm nëse është absolutisht e nevojshme, por për tani e lëmë ashtu siç është
-    // Nëse do të duash të shtosh konvertim të kontrolluar, mund ta bësh kështu:
-    // if (window.location.protocol === 'https:' && url.startsWith('http:') && confirmUserWantsHttps) {
-    //   finalUrl = url.replace('http://', 'https://');
-    // }
 
-    console.log('🎬 Start video (original URL):', finalUrl);
+    console.log('🎬 Start video:', finalUrl);
 
     // Kontrollo nëse është HLS stream
     const isHls = finalUrl.includes('.m3u8') || finalUrl.includes('playlist.m3u8');
@@ -101,15 +94,20 @@ const HlsPlayer = ({
           fragLoadingMaxRetry: 4,
           startLevel: -1,
           debug: false,
+          // xhrSetup i modifikuar - PA USER-AGENT
           xhrSetup: (xhr, url) => {
+            // Vendos vetëm headera të lejuar
             xhr.setRequestHeader('Accept', '*/*');
             xhr.setRequestHeader('Accept-Language', 'en-US,en;q=0.9');
-            xhr.setRequestHeader('User-Agent', navigator.userAgent);
             
-            if (url.includes('panther-tv.com') || url.includes('balkan-x.net')) {
+            // Shto Referer dhe Origin vetëm për domain-e specifike
+            if (url.includes('panther-tv.com') || url.includes('balkan-x.net') || url.includes('zdravahrana.dyndns.info')) {
               xhr.setRequestHeader('Referer', 'https://google.com/');
               xhr.setRequestHeader('Origin', 'https://google.com');
             }
+            
+            // IMPORTANT: Mos u mundo të vendosësh "User-Agent" sepse është i ndaluar!
+            // Shfletuesi e vendos automatikisht User-Agent-in e duhur
           }
         });
 
@@ -138,9 +136,13 @@ const HlsPlayer = ({
             switch (data.type) {
               case Hls.ErrorTypes.NETWORK_ERROR:
                 console.log('Network error, trying to recover...');
+                // Rrit gradualisht vonesën para se të provosh përsëri
+                const delay = Math.min(2000 * (retryCount + 1), 10000);
                 setTimeout(() => {
-                  hls.startLoad();
-                }, 2000);
+                  if (hlsRef.current) {
+                    hlsRef.current.startLoad();
+                  }
+                }, delay);
                 break;
               case Hls.ErrorTypes.MEDIA_ERROR:
                 console.log('Media error, trying to recover...');
@@ -159,7 +161,9 @@ const HlsPlayer = ({
             if (retryCount < MAX_RETRIES) {
               console.log(`Retry attempt ${retryCount + 1}/${MAX_RETRIES}`);
               setTimeout(() => {
-                hls.loadSource(finalUrl);
+                if (hlsRef.current) {
+                  hlsRef.current.loadSource(finalUrl);
+                }
               }, 2000);
             } else {
               setError('Nuk mund të ngarkohet playlist-i. Kontrollo lidhjen.');
@@ -171,6 +175,7 @@ const HlsPlayer = ({
         
       } catch (err) {
         console.error('HLS init error:', err);
+        // Fallback to native video
         player.src = finalUrl;
         player.load();
       }
